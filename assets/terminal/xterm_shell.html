@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terminal</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; background: #F4F7F8; }
+#terminal { height: 100%; padding: 6px; }
+</style>
+</head>
+<body>
+<div id="terminal"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+<script>
+(function() {
+  const term = new Terminal({
+    cursorStyle: 'bar',
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    lineHeight: 1.35,
+    letterSpacing: 0,
+    theme: {
+      background: '#F4F7F8',
+      foreground: '#172126',
+      cursor: '#167C6E',
+      cursorAccent: '#FFFFFF',
+      selectionBackground: '#35167C6E',
+      black: '#172126',
+      red: '#D46550',
+      green: '#167C6E',
+      yellow: '#A97C2F',
+      blue: '#3A7BA8',
+      magenta: '#9A6DA8',
+      cyan: '#168C8C',
+      white: '#EAF0F2',
+      brightBlack: '#788A91',
+      brightRed: '#E5957C',
+      brightGreen: '#57968B',
+      brightYellow: '#D8B779',
+      brightBlue: '#5A8DB8',
+      brightMagenta: '#B88AB8',
+      brightCyan: '#5AA8A8',
+      brightWhite: '#F4F7F8',
+    },
+    allowTransparency: false,
+    convertEol: true,
+  });
+
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+
+  const terminalEl = document.getElementById('terminal');
+  term.open(terminalEl);
+
+  // Fit terminal to container after a short delay
+  setTimeout(() => { try { fitAddon.fit(); } catch(e) {} }, 50);
+  window.addEventListener('resize', () => { try { fitAddon.fit(); } catch(e) {} });
+
+  // ── Resize observer ──
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+      try { fitAddon.fit(); } catch(e) {}
+    });
+    ro.observe(terminalEl);
+  }
+
+  // ── Communication with Flutter ──
+
+  // Flutter → Terminal: write base64-encoded data
+  window.writeB64 = function(b64) {
+    try {
+      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const decoder = new TextDecoder('utf-8');
+      term.write(decoder.decode(bytes));
+    } catch(e) {
+      console.error('writeB64 error:', e);
+    }
+  };
+
+  // Terminal → Flutter: keystrokes and paste data
+  term.onData(data => {
+    try {
+      TerminalChannel.postMessage(data);
+    } catch(e) {
+      console.error('TerminalChannel error:', e);
+    }
+  });
+
+  // Terminal → Flutter: resize (cols, rows)
+  term.onResize(({ cols, rows }) => {
+    try {
+      ResizeChannel.postMessage(JSON.stringify({ cols, rows }));
+    } catch(e) {}
+  });
+
+  // Flutter → Terminal: resize externally
+  window.terminalResize = function(cols, rows) {
+    try { term.resize(cols, rows); } catch(e) {}
+  };
+
+  // Flutter → Terminal: paste text
+  window.terminalPaste = function(text) {
+    try { term.paste(text); } catch(e) {}
+  };
+
+  // Flutter → Terminal: focus
+  window.terminalFocus = function() {
+    try { term.focus(); } catch(e) {}
+  };
+
+  console.log('xterm.js terminal ready');
+  try { TerminalReady.postMessage('ready'); } catch(e) {}
+})();
+</script>
+</body>
+</html>
