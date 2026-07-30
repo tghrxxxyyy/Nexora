@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -7,6 +9,7 @@ import '../state/editor_session.dart';
 import 'code_editor_view.dart';
 import 'html_preview.dart';
 import 'markdown_dom_preview.dart';
+import 'markdown_preview.dart';
 import 'ui_primitives.dart';
 
 class DocumentToolbar extends StatelessWidget {
@@ -255,6 +258,28 @@ class DocumentArea extends StatelessWidget {
       return HtmlPreview(
         path: session.document.path,
         content: session.document.content,
+      );
+    }
+    // Linux has no embedded WebView implementation in this app. Windows uses
+    // WebView2 inside MarkdownDomPreview, keeping its editable DOM behavior
+    // aligned with macOS.
+    if (Platform.isLinux) {
+      return MarkdownPreview(
+        path: session.document.path,
+        content: session.document.content,
+        headings: session.headings,
+        previewAnchor: session.previewAnchor,
+        previewJumpId: session.previewJumpId,
+        findController: session.previewFindController,
+        onOpenLocalPath: controller.openPath,
+        onOpenAnchor: (anchor) {
+          for (final heading in session.headings) {
+            if (heading.anchor == anchor) {
+              controller.jumpToHeading(heading.lineNumber, heading.anchor);
+              break;
+            }
+          }
+        },
       );
     }
     return MarkdownDomPreview(

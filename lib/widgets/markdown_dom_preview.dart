@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../app_theme.dart';
 import '../models/markdown_heading.dart';
+import '../services/markdown_code_highlighter.dart';
 import '../state/preview_find_controller.dart';
 import 'preview_find_panel.dart';
 
@@ -55,6 +56,9 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   String _observedFindQuery = '';
   String? _pendingPreviewContent;
 
+  late final MarkdownCodeHighlighter _codeHighlighter =
+      MarkdownCodeHighlighter();
+
   @override
   void initState() {
     super.initState();
@@ -65,7 +69,11 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     _observedFindQuery = widget.findController.query;
     _pendingAnchor = widget.previewAnchor;
     widget.findController.addListener(_handleFindChanged);
-    _controller = WebViewController()
+    _initializeWebView();
+  }
+
+  void _initializeWebView() {
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
         'XFileBridge',
@@ -100,6 +108,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
           },
         ),
       );
+    _controller = controller;
     unawaited(_loadContent());
   }
 
@@ -403,13 +412,14 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       extensionSet: md.ExtensionSet.gitHubFlavored,
     );
     var headingIndex = 0;
-    return html.replaceAllMapped(RegExp(r'<h([1-6])>'), (match) {
+    final anchoredHtml = html.replaceAllMapped(RegExp(r'<h([1-6])>'), (match) {
       if (headingIndex >= widget.headings.length) return match.group(0)!;
       final anchor = const HtmlEscape().convert(
         widget.headings[headingIndex++].anchor,
       );
       return '<h${match.group(1)} id="$anchor">';
     });
+    return _codeHighlighter.decorate(anchoredHtml);
   }
 
   String _styleSheet() {
@@ -460,6 +470,55 @@ pre {
   border-radius: 5px;
 }
 pre code { padding: 0; color: inherit; background: transparent; }
+.x-file-code-block {
+  position: relative;
+  margin: 16px 0;
+  overflow: hidden;
+  background: linear-gradient(145deg, ${_color(AppColors.surfaceRaised)}, ${_color(AppColors.background)} 78%);
+  border: 1px solid rgba(${_rgb(AppColors.lineStrong)}, 0.82);
+  border-radius: 7px;
+  box-shadow: 0 10px 30px rgba(${_rgb(AppColors.background)}, 0.10);
+}
+.x-file-code-block pre {
+  margin: 0;
+  padding: 39px 20px 20px;
+  border-radius: 0;
+  background: transparent;
+  font-family: "Maple Mono", "SF Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.68;
+  tab-size: 2;
+}
+.x-file-code-language {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 19px;
+  padding: 1px 7px;
+  color: ${_color(AppColors.signal)};
+  background: rgba(${_rgb(AppColors.signal)}, 0.11);
+  border: 1px solid rgba(${_rgb(AppColors.signal)}, 0.20);
+  border-radius: 999px;
+  font-family: "Maple Mono", "SF Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  text-transform: lowercase;
+  user-select: none;
+  pointer-events: none;
+}
+.hljs-comment, .hljs-quote { color: ${_color(AppColors.textDim)}; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-meta .hljs-keyword { color: ${_color(AppColors.coral)}; }
+.hljs-string, .hljs-doctag, .hljs-regexp { color: ${_color(AppColors.acid)}; }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: ${_color(AppColors.amber)}; }
+.hljs-title, .hljs-function, .hljs-type, .hljs-class .hljs-title { color: ${_color(AppColors.signal)}; }
+.hljs-params, .hljs-variable, .hljs-template-variable, .hljs-attr { color: ${_color(AppColors.textMuted)}; }
+.hljs-built_in, .hljs-meta, .hljs-tag, .hljs-name { color: ${_color(AppColors.signalDim)}; }
+.hljs-attribute, .hljs-property { color: ${_color(AppColors.amber)}; }
 blockquote {
   margin: 14px 0;
   padding: 10px 16px;
@@ -498,6 +557,16 @@ const _bridgeScript = r'''
 window.xFileReady = function() {};
 window.xFileMatches = [];
 window.xFileInputTimer = null;
+
+window.xFilePostMessage = function(message) {
+  if (window.XFileBridge && window.XFileBridge.postMessage) {
+    window.XFileBridge.postMessage(JSON.stringify(message));
+    return;
+  }
+  if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.postMessage(message);
+  }
+};
 
 window.xFileSetAnchors = function(anchors) {
   var headings = document.querySelectorAll('#x-file-document h1, #x-file-document h2, #x-file-document h3, #x-file-document h4, #x-file-document h5, #x-file-document h6');
@@ -564,6 +633,15 @@ window.xFileToMarkdown = function(root) {
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
     var tag = node.tagName.toLowerCase();
     var value = children(node);
+    if (node.classList.contains('x-file-code-language')) return '';
+    if (node.classList.contains('x-file-code-block')) {
+      var fencedCode = node.querySelector('pre code');
+      var fencedLanguage = node.dataset.xFileLanguage || '';
+      var fence = fencedLanguage && fencedLanguage !== 'text' ? fencedLanguage : '';
+      return '```' + fence + '\n' +
+          ((fencedCode && fencedCode.textContent) || '').replace(/^\n+|\n+$/g, '') +
+          '\n```\n\n';
+    }
     if (tag === 'br') return '\n';
     if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6') {
       return '#'.repeat(Number(tag.substring(1))) + ' ' + inlineChildren(node) + '\n\n';
@@ -573,7 +651,14 @@ window.xFileToMarkdown = function(root) {
     if (tag === 'em' || tag === 'i') return '*' + value.trim() + '*';
     if (tag === 'del' || tag === 's' || tag === 'strike') return '~~' + value.trim() + '~~';
     if (tag === 'code') return '`' + (node.textContent || '').replace(/`/g, '\\`') + '`';
-    if (tag === 'pre') return '```\n' + (node.textContent || '').replace(/^\n+|\n+$/g, '') + '\n```\n\n';
+    if (tag === 'pre') {
+      var code = node.querySelector('code');
+      var className = (code && code.className) || '';
+      var match = className.match(/(?:^|\s)language-([^\s]+)/);
+      var language = match ? match[1] : '';
+      return '```' + language + '\n' +
+          (node.textContent || '').replace(/^\n+|\n+$/g, '') + '\n```\n\n';
+    }
     if (tag === 'blockquote') {
       return value.trim().split('\n').map(function(line) {
         return line ? '> ' + line : '>';
@@ -597,10 +682,10 @@ window.xFileSendContent = function() {
   var root = document.getElementById('x-file-document');
   if (!root) return;
   window.xFileClearFind();
-  XFileBridge.postMessage(JSON.stringify({
+  window.xFilePostMessage({
     type: 'content',
     markdown: window.xFileToMarkdown(root)
-  }));
+  });
 };
 
 window.xFileAttachEditor = function() {
@@ -652,7 +737,7 @@ window.xFileActivate = function(requestedIndex, shouldScroll) {
 window.xFileFind = function(query, caseSensitive, requestedIndex, shouldScroll) {
   window.xFileClearFind();
   if (!query) {
-    XFileBridge.postMessage(JSON.stringify({ type: 'find', count: 0 }));
+    window.xFilePostMessage({ type: 'find', count: 0 });
     return;
   }
   var root = document.getElementById('x-file-document');
@@ -661,7 +746,7 @@ window.xFileFind = function(query, caseSensitive, requestedIndex, shouldScroll) 
   var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: function(node) {
       var parent = node.parentElement;
-      if (!parent || parent.closest('script, style')) return NodeFilter.FILTER_REJECT;
+      if (!parent || parent.closest('script, style, .x-file-code-language')) return NodeFilter.FILTER_REJECT;
       return node.nodeValue ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     }
   });
@@ -691,7 +776,7 @@ window.xFileFind = function(query, caseSensitive, requestedIndex, shouldScroll) 
   window.xFileMatches = Array.prototype.slice.call(
     root.querySelectorAll('mark[data-x-file-find]')
   );
-  XFileBridge.postMessage(JSON.stringify({ type: 'find', count: window.xFileMatches.length }));
+  window.xFilePostMessage({ type: 'find', count: window.xFileMatches.length });
   window.xFileActivate(requestedIndex, shouldScroll);
 };
 
@@ -712,7 +797,7 @@ document.addEventListener('click', function(event) {
   var href = link.getAttribute('href');
   if (!href) return;
   event.preventDefault();
-  XFileBridge.postMessage(JSON.stringify({ type: 'link', href: href }));
+  window.xFilePostMessage({ type: 'link', href: href });
 });
 
 window.xFileAttachEditor();
