@@ -9,12 +9,14 @@ import 'package:path/path.dart' as p;
 
 import '../app_theme.dart';
 import '../models/markdown_heading.dart';
+import '../services/markdown_asset_resolver.dart';
 import '../state/preview_find_controller.dart';
 import 'preview_find_panel.dart';
 
 class MarkdownPreview extends StatefulWidget {
   const MarkdownPreview({
     required this.path,
+    required this.workspaceRoot,
     required this.content,
     required this.headings,
     required this.previewAnchor,
@@ -26,6 +28,7 @@ class MarkdownPreview extends StatefulWidget {
   });
 
   final String path;
+  final String workspaceRoot;
   final String content;
   final List<MarkdownHeading> headings;
   final String? previewAnchor;
@@ -255,11 +258,13 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
                             ),
                           );
                         }
-                        final imagePath = uri.scheme == 'file'
-                            ? uri.toFilePath()
-                            : p.normalize(
-                                p.join(p.dirname(widget.path), uri.toString()),
-                              );
+                        final imagePath =
+                            MarkdownAssetResolver.resolveLocalPath(
+                              source: uri.toString(),
+                              documentPath: widget.path,
+                              workspaceRoot: widget.workspaceRoot,
+                            );
+                        if (imagePath == null) return _ImageError(alt: alt);
                         return GestureDetector(
                           onTap: () => widget.onOpenLocalPath?.call(imagePath),
                           child: Image.file(

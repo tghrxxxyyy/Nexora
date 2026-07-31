@@ -249,6 +249,10 @@ class DocumentArea extends StatelessWidget {
   }
 
   Widget _preview(EditorSession session) {
+    final workspace = controller.activeWorkspace;
+    final workspaceRoot = workspace?.isDirectory == true
+        ? workspace!.path
+        : p.dirname(session.document.path);
     if (session.document.isImage) {
       return ImagePreview(path: session.document.path);
     }
@@ -264,6 +268,7 @@ class DocumentArea extends StatelessWidget {
     if (Platform.isLinux) {
       return MarkdownPreview(
         path: session.document.path,
+        workspaceRoot: workspaceRoot,
         content: session.document.content,
         headings: session.headings,
         previewAnchor: session.previewAnchor,
@@ -282,6 +287,7 @@ class DocumentArea extends StatelessWidget {
     }
     return MarkdownDomPreview(
       path: session.document.path,
+      workspaceRoot: workspaceRoot,
       content: session.document.content,
       headings: session.headings,
       previewAnchor: session.previewAnchor,
