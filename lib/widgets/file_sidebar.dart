@@ -21,6 +21,7 @@ class FileExplorerPanel extends StatefulWidget {
 class _FileExplorerPanelState extends State<FileExplorerPanel> {
   final TextEditingController _filterController = TextEditingController();
   String _filter = '';
+  int? _hoveredRowIndex;
 
   @override
   void dispose() {
@@ -93,12 +94,27 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     itemCount: visibleRows.length,
                     itemExtent: 28,
-                    itemBuilder: (context, index) => _FileRow(
-                      row: visibleRows[index],
-                      selectedPath: workspace.selectedFilePath,
-                      onTap: () => _onRowTap(visibleRows[index]),
-                      onArrowTap: () => _onArrowTap(visibleRows[index]),
-                    ),
+                    itemBuilder: (context, index) {
+                      final hoveredIndex = _hoveredRowIndex;
+                      return _FileRow(
+                        row: visibleRows[index],
+                        selectedPath: workspace.selectedFilePath,
+                        hoverDistance: hoveredIndex == null
+                            ? null
+                            : (index - hoveredIndex).abs(),
+                        onHoverChanged: (hovered) {
+                          setState(() {
+                            if (hovered) {
+                              _hoveredRowIndex = index;
+                            } else if (_hoveredRowIndex == index) {
+                              _hoveredRowIndex = null;
+                            }
+                          });
+                        },
+                        onTap: () => _onRowTap(visibleRows[index]),
+                        onArrowTap: () => _onArrowTap(visibleRows[index]),
+                      );
+                    },
                   ),
           ),
         ],
@@ -231,12 +247,16 @@ class _FileRow extends StatefulWidget {
   const _FileRow({
     required this.row,
     required this.selectedPath,
+    required this.hoverDistance,
+    required this.onHoverChanged,
     required this.onTap,
     this.onArrowTap,
   });
 
   final _TreeRow row;
   final String? selectedPath;
+  final int? hoverDistance;
+  final ValueChanged<bool> onHoverChanged;
   final VoidCallback onTap;
   final VoidCallback? onArrowTap;
 
@@ -245,30 +265,33 @@ class _FileRow extends StatefulWidget {
 }
 
 class _FileRowState extends State<_FileRow> {
-  bool _hovered = false;
-
   @override
   Widget build(BuildContext context) {
     final row = widget.row;
     final showArrow = row.isDirectory || (row.isFile && _canExpandHeadings);
     final selected = widget.selectedPath == row.node.path && !row.isHeading;
+    final scale = switch (widget.hoverDistance) {
+      0 => 1.16,
+      1 => 1.08,
+      2 => 1.035,
+      _ => 1.0,
+    };
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: row.isDirectory ? widget.onTap : null,
-        child: Stack(
-          children: [
-            Container(
-              color: selected
-                  ? AppColors.signal.withValues(alpha: 0.065)
-                  : _hovered
-                  ? AppColors.signal.withValues(alpha: 0.018)
-                  : Colors.transparent,
-              child: Row(
+      onEnter: (_) => widget.onHoverChanged(true),
+      onExit: (_) => widget.onHoverChanged(false),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 175),
+        curve: AppMotion.emphasized,
+        scale: scale,
+        alignment: Alignment.centerLeft,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: row.isDirectory ? widget.onTap : null,
+          child: Stack(
+            children: [
+              Row(
                 children: [
                   SizedBox(width: 10 + row.depth * 13),
                   if (showArrow)
@@ -316,16 +339,11 @@ class _FileRowState extends State<_FileRow> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            row.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: selected
-                                  ? AppColors.text
-                                  : AppColors.textMuted,
-                              fontSize: row.isHeading ? 10.8 : 11.5,
-                            ),
+                          child: _FileName(
+                            name: row.displayName,
+                            emphasized: widget.hoverDistance == 0,
+                            selected: selected,
+                            fontSize: row.isHeading ? 10.8 : 11.5,
                           ),
                         ),
                         if (row.dirty) ...[
@@ -346,23 +364,23 @@ class _FileRowState extends State<_FileRow> {
                   const SizedBox(width: 8),
                 ],
               ),
-            ),
-            if (selected)
-              Positioned(
-                left: 0,
-                top: 5,
-                bottom: 5,
-                child: Container(
-                  width: 2,
-                  decoration: BoxDecoration(
-                    color: AppColors.signal.withValues(alpha: 0.84),
-                    borderRadius: const BorderRadius.horizontal(
-                      right: Radius.circular(3),
+              if (selected)
+                Positioned(
+                  left: 0,
+                  top: 5,
+                  bottom: 5,
+                  child: Container(
+                    width: 2,
+                    decoration: BoxDecoration(
+                      color: AppColors.signal.withValues(alpha: 0.84),
+                      borderRadius: const BorderRadius.horizontal(
+                        right: Radius.circular(3),
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -378,6 +396,46 @@ class _FileRowState extends State<_FileRow> {
       2 => AppColors.signalDim,
       _ => AppColors.textDim,
     };
+  }
+}
+
+class _FileName extends StatelessWidget {
+  const _FileName({
+    required this.name,
+    required this.emphasized,
+    required this.selected,
+    required this.fontSize,
+  });
+
+  final String name;
+  final bool emphasized;
+  final bool selected;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: emphasized
+            ? Colors.white
+            : selected
+            ? AppColors.text
+            : AppColors.textMuted,
+        fontSize: fontSize,
+        fontWeight: emphasized ? FontWeight.w600 : FontWeight.w400,
+      ),
+    );
+    if (!emphasized) return text;
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (bounds) => const LinearGradient(
+        colors: [Color(0xFF1A3145), Color(0xFF287AB8)],
+      ).createShader(bounds),
+      child: text,
+    );
   }
 }
 

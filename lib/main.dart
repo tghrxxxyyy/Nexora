@@ -24,9 +24,13 @@ class XFileApp extends StatefulWidget {
 }
 
 class _XFileAppState extends State<XFileApp> {
+  static const _statusMenuChannel = MethodChannel('com.xuyu.xfile/status_menu');
+
   final AppController _controller = AppController();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final AppLifecycleListener _lifecycleListener;
+  String _statusMenuSnapshot = '';
+  bool _statusMenuRetryPending = false;
 
   @override
   void initState() {
@@ -34,7 +38,54 @@ class _XFileAppState extends State<XFileApp> {
     _lifecycleListener = AppLifecycleListener(
       onExitRequested: _onExitRequested,
     );
-    unawaited(_controller.restoreSession());
+    _controller.addListener(_syncStatusMenu);
+    if (Platform.isMacOS) {
+      _statusMenuChannel.setMethodCallHandler(_handleStatusMenuCall);
+    }
+    unawaited(_restoreSession());
+  }
+
+  Future<void> _restoreSession() async {
+    await _controller.restoreSession();
+    await _syncStatusMenu();
+  }
+
+  Future<void> _handleStatusMenuCall(MethodCall call) async {
+    if (call.method == 'requestRecentDocuments') {
+      await _syncStatusMenu();
+      return;
+    }
+    if (call.method != 'openRecentDocument') return;
+    final path = call.arguments;
+    if (path is! String || path.isEmpty) return;
+    await _controller.openPath(path);
+  }
+
+  Future<void> _syncStatusMenu() async {
+    if (!Platform.isMacOS) return;
+    final documents = _controller.recentItems
+        .where((item) => item.isFile)
+        .take(4)
+        .map((item) => {'name': item.name, 'path': item.path})
+        .toList(growable: false);
+    final snapshot = documents
+        .map((document) => '${document['path']}\u0000${document['name']}')
+        .join('\u0001');
+    if (snapshot == _statusMenuSnapshot) return;
+    try {
+      await _statusMenuChannel.invokeMethod<void>(
+        'setRecentDocuments',
+        documents,
+      );
+      _statusMenuSnapshot = snapshot;
+    } on MissingPluginException {
+      if (_statusMenuRetryPending) return;
+      _statusMenuRetryPending = true;
+      Future<void>.delayed(const Duration(milliseconds: 400), () async {
+        _statusMenuRetryPending = false;
+        await _syncStatusMenu();
+      });
+    }
   }
 
   Future<AppExitResponse> _onExitRequested() async {
@@ -80,6 +131,10 @@ class _XFileAppState extends State<XFileApp> {
 
   @override
   void dispose() {
+    _controller.removeListener(_syncStatusMenu);
+    if (Platform.isMacOS) {
+      _statusMenuChannel.setMethodCallHandler(null);
+    }
     _lifecycleListener.dispose();
     _controller.dispose();
     super.dispose();

@@ -330,6 +330,7 @@ class AppController extends ChangeNotifier {
           type: WorkspaceItemType.file,
         ),
       );
+      notifyListeners();
     }
     await _persistSession();
   }
@@ -424,6 +425,13 @@ class AppController extends ChangeNotifier {
     }
     _workspaces[_activeWorkspaceIndex] = workspace.copyWith(
       selectedFilePath: normalizedPath,
+    );
+    _recordRecent(
+      WorkspaceItem(
+        path: normalizedPath,
+        name: p.basename(normalizedPath),
+        type: WorkspaceItemType.file,
+      ),
     );
     _activeHeadingAnchor = null;
     notifyListeners();

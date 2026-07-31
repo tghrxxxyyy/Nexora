@@ -131,7 +131,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       _pendingPreviewContent = null;
       unawaited(_updateHeadingAnchors());
     } else if (widget.themeMode != oldWidget.themeMode) {
-      unawaited(_loadContent());
+      unawaited(_refreshThemedDocument());
     } else if (widget.content != oldWidget.content ||
         widget.path != oldWidget.path ||
         widget.headings != oldWidget.headings) {
@@ -236,6 +236,10 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     }
+  }
+
+  Future<void> _refreshThemedDocument() async {
+    await _loadContent();
   }
 
   Future<void> _replaceDocument() async {
@@ -400,7 +404,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
 <style>${_styleSheet()}</style>
 </head>
 <body>
-<main id="x-file-document" contenteditable="true" spellcheck="false">$markdownHtml</main>
+<main id="x-file-document" contenteditable="true" spellcheck="false" tabindex="0">$markdownHtml</main>
 <script>$_bridgeScript</script>
 </body>
 </html>''';
@@ -427,9 +431,15 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     return '''
 :root { color-scheme: ${dark ? 'dark' : 'light'}; }
 * { box-sizing: border-box; }
-html { background: ${_color(AppColors.backgroundRaised)}; scroll-behavior: smooth; }
+html {
+  width: 100%;
+  min-height: 100%;
+  background: ${_color(AppColors.backgroundRaised)};
+  scroll-behavior: smooth;
+}
 body {
   margin: 0;
+  width: 100%;
   min-height: 100vh;
   color: ${_color(AppColors.text)};
   background: ${_color(AppColors.background)};
@@ -440,7 +450,16 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-#x-file-document { width: min(100%, 1120px); margin: 0 auto; padding: 36px 46px 96px; outline: none; }
+#x-file-document {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 36px 46px 96px;
+  outline: none;
+  caret-color: ${_color(AppColors.signal)};
+  -webkit-user-select: text;
+  user-select: text;
+}
+#x-file-document, #x-file-document * { -webkit-user-select: text; user-select: text; }
 #x-file-document:focus { background: transparent; }
 h1, h2, h3, h4, h5, h6 { scroll-margin-top: 28px; color: ${_color(AppColors.text)}; }
 h1 { margin: 10px 0 14px; font-size: 31px; font-weight: 300; line-height: 1.35; }
@@ -508,6 +527,7 @@ pre code { padding: 0; color: inherit; background: transparent; }
   letter-spacing: 0.04em;
   line-height: 1.5;
   text-transform: lowercase;
+  -webkit-user-select: none;
   user-select: none;
   pointer-events: none;
 }
@@ -557,6 +577,8 @@ const _bridgeScript = r'''
 window.xFileReady = function() {};
 window.xFileMatches = [];
 window.xFileInputTimer = null;
+window.xFileSelectionTimer = null;
+window.xFilePendingContentSync = false;
 
 window.xFilePostMessage = function(message) {
   if (window.XFileBridge && window.XFileBridge.postMessage) {
@@ -681,6 +703,12 @@ window.xFileToMarkdown = function(root) {
 window.xFileSendContent = function() {
   var root = document.getElementById('x-file-document');
   if (!root) return;
+  var selection = window.getSelection();
+  if (selection && !selection.isCollapsed) {
+    window.xFilePendingContentSync = true;
+    return;
+  }
+  window.xFilePendingContentSync = false;
   window.xFileClearFind();
   window.xFilePostMessage({
     type: 'content',
@@ -696,12 +724,32 @@ window.xFileAttachEditor = function() {
     window.clearTimeout(window.xFileInputTimer);
     window.xFileInputTimer = window.setTimeout(window.xFileSendContent, 220);
   });
+  root.addEventListener('pointerdown', function() {
+    root.contentEditable = 'false';
+    window.clearTimeout(window.xFileSelectionTimer);
+  }, true);
+  root.addEventListener('pointerup', function() {
+    window.requestAnimationFrame(function() {
+      var selection = window.getSelection();
+      if (selection && !selection.isCollapsed) return;
+      root.contentEditable = 'true';
+      root.focus({ preventScroll: true });
+    });
+  }, true);
+  document.addEventListener('selectionchange', function() {
+    if (!window.xFilePendingContentSync) return;
+    var selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    window.clearTimeout(window.xFileSelectionTimer);
+    window.xFileSelectionTimer = window.setTimeout(window.xFileSendContent, 80);
+  });
 };
 
 window.xFileReplaceDocument = function(html, baseHref) {
   window.xFileClearFind();
   var root = document.getElementById('x-file-document');
   if (!root) return;
+  root.contentEditable = 'true';
   root.innerHTML = html;
   var base = document.querySelector('base');
   if (base) base.href = baseHref;
