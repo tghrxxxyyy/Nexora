@@ -162,9 +162,9 @@ class _HeadingRowState extends State<_HeadingRow> {
   Widget build(BuildContext context) {
     final heading = widget.heading;
     final scale = switch (widget.hoverDistance) {
-      0 => 1.14,
-      1 => 1.07,
-      2 => 1.03,
+      0 => 1.23,
+      1 => 1.12,
+      2 => 1.055,
       _ => 1.0,
     };
     return MouseRegion(
