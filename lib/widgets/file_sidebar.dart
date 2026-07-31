@@ -94,7 +94,7 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                 : ListView.builder(
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     itemCount: visibleRows.length,
-                    itemExtent: 28,
+                    itemExtent: 32,
                     itemBuilder: (context, index) {
                       final hoveredIndex = _hoveredRowIndex;
                       return _FileRow(
@@ -272,9 +272,9 @@ class _FileRowState extends State<_FileRow> {
     final showArrow = row.isDirectory || (row.isFile && _canExpandHeadings);
     final selected = widget.selectedPath == row.node.path && !row.isHeading;
     final scale = switch (widget.hoverDistance) {
-      0 => 1.16,
-      1 => 1.08,
-      2 => 1.035,
+      0 => 1.25,
+      1 => 1.13,
+      2 => 1.06,
       _ => 1.0,
     };
 
