@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tghrxxxyyy/Nexora/releases"><img src="https://img.shields.io/github/v/release/tghrxxxyyy/Nexora?color=%233B82F6&style=flat-square" alt="release"></a>
+  <a href="https://github.com/tghrxxxyyy/Nexora/releases"><img src="https://img.shields.io/badge/release-1.0.34-%233B82F6?style=flat-square" alt="release 1.0.34"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-%233B82F6?style=flat-square" alt="license"></a>
   <a href="#"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-%233B82F6?style=flat-square" alt="platform"></a>
   <a href="#"><img src="https://img.shields.io/badge/flutter-%5E3.12-%233B82F6?style=flat-square" alt="flutter"></a>
