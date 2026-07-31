@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../app_theme.dart';
 import '../models/markdown_heading.dart';
+import '../services/markdown_asset_resolver.dart';
 import '../services/markdown_code_highlighter.dart';
 import '../state/preview_find_controller.dart';
 import 'preview_find_panel.dart';
@@ -16,6 +17,7 @@ import 'preview_find_panel.dart';
 class MarkdownDomPreview extends StatefulWidget {
   const MarkdownDomPreview({
     required this.path,
+    required this.workspaceRoot,
     required this.content,
     required this.headings,
     required this.previewAnchor,
@@ -30,6 +32,7 @@ class MarkdownDomPreview extends StatefulWidget {
   });
 
   final String path;
+  final String workspaceRoot;
   final String content;
   final List<MarkdownHeading> headings;
   final String? previewAnchor;
@@ -479,7 +482,24 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       );
       return '<h${match.group(1)} id="$anchor">';
     });
-    return _codeHighlighter.decorate(anchoredHtml);
+    return _codeHighlighter.decorate(_resolveLocalImageSources(anchoredHtml));
+  }
+
+  String _resolveLocalImageSources(String html) {
+    return html.replaceAllMapped(
+      RegExp(r'(<img\b[^>]*\bsrc=")([^"]*)(")', caseSensitive: false),
+      (match) {
+        final imagePath = MarkdownAssetResolver.resolveLocalPath(
+          source: match.group(2)!,
+          documentPath: widget.path,
+          workspaceRoot: widget.workspaceRoot,
+        );
+        if (imagePath == null) return match.group(0)!;
+        final dataUri = MarkdownAssetResolver.dataUriForPath(imagePath);
+        if (dataUri == null) return match.group(0)!;
+        return '${match.group(1)}$dataUri${match.group(3)}';
+      },
+    );
   }
 
   String _styleSheet() {
