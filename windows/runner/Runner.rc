@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.xuyu" "\0"
-            VALUE "FileDescription", "x_file" "\0"
+            VALUE "FileDescription", "Nexora" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "x_file" "\0"
+            VALUE "InternalName", "nexora" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.xuyu. All rights reserved." "\0"
-            VALUE "OriginalFilename", "x_file.exe" "\0"
-            VALUE "ProductName", "x_file" "\0"
+            VALUE "OriginalFilename", "nexora.exe" "\0"
+            VALUE "ProductName", "Nexora" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

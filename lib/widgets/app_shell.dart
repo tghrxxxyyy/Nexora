@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:xterm/xterm.dart';
 
 import '../app_theme.dart';
+import '../models/terminal_layout.dart';
 import '../models/workspace_item.dart';
 import '../state/app_controller.dart';
 import 'document_area.dart';
@@ -15,9 +18,14 @@ import 'terminal_panel.dart';
 import 'ui_primitives.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({required this.controller, super.key});
+  const AppShell({
+    required this.controller,
+    required this.onShowSettings,
+    super.key,
+  });
 
   final AppController controller;
+  final VoidCallback onShowSettings;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -40,6 +48,7 @@ class _AppShellState extends State<AppShell> {
 
   bool _handleKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
+    if (_terminalHasFocus()) return false;
     if (event.logicalKey == LogicalKeyboardKey.escape) {
       controller.closeCurrentFileFind();
       return true;
@@ -51,6 +60,14 @@ class _AppShellState extends State<AppShell> {
       return true;
     }
     return false;
+  }
+
+  /// Returns whether direct keyboard input currently belongs to a terminal.
+  bool _terminalHasFocus() {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext == null) return false;
+    return focusContext.widget is TerminalView ||
+        focusContext.findAncestorWidgetOfExactType<TerminalView>() != null;
   }
 
   @override
@@ -91,18 +108,7 @@ class _AppShellState extends State<AppShell> {
                         ),
                         const SignalDivider(),
                       ],
-                      Expanded(child: _WorkspaceBody(controller: controller)),
-                      if (controller.showTerminal) ...[
-                        const SignalDivider(),
-                        AnimatedContainer(
-                          duration: AppMotion.standard,
-                          curve: AppMotion.curve,
-                          height: 200,
-                          child: TerminalPanel(
-                            session: controller.terminalSession!,
-                          ),
-                        ),
-                      ],
+                      Expanded(child: _buildWorkspaceWithTerminal()),
                       StatusBar(controller: controller),
                     ],
                   ),
@@ -114,12 +120,146 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+
+  /// Builds the editor and live terminal using the selected dock edge.
+  Widget _buildWorkspaceWithTerminal() {
+    final terminalWorkspace = controller.terminalWorkspace;
+    if (!terminalWorkspace.visible) {
+      return _WorkspaceBody(
+        controller: controller,
+        onShowSettings: widget.onShowSettings,
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final terminal = TerminalPanel(
+          controller: terminalWorkspace,
+          workingDirectory: controller.terminalWorkingDirectory,
+          fontScale: controller.fontScale,
+        );
+        if (terminalWorkspace.dock == TerminalDock.right) {
+          final extent = _effectiveDockExtent(
+            requested: terminalWorkspace.rightExtent,
+            available: constraints.maxWidth,
+            preferredMinimum: 300,
+            reservedWorkspace: 280,
+          );
+          return Row(
+            children: [
+              Expanded(
+                child: _WorkspaceBody(
+                  controller: controller,
+                  onShowSettings: widget.onShowSettings,
+                ),
+              ),
+              _TerminalDockResizeHandle(
+                dock: TerminalDock.right,
+                onDelta: (delta) =>
+                    terminalWorkspace.setDockExtent(extent - delta),
+              ),
+              SizedBox(width: extent, child: terminal),
+            ],
+          );
+        }
+
+        final extent = _effectiveDockExtent(
+          requested: terminalWorkspace.bottomExtent,
+          available: constraints.maxHeight,
+          preferredMinimum: 170,
+          reservedWorkspace: 180,
+        );
+        return Column(
+          children: [
+            Expanded(
+              child: _WorkspaceBody(
+                controller: controller,
+                onShowSettings: widget.onShowSettings,
+              ),
+            ),
+            _TerminalDockResizeHandle(
+              dock: TerminalDock.bottom,
+              onDelta: (delta) =>
+                  terminalWorkspace.setDockExtent(extent - delta),
+            ),
+            SizedBox(height: extent, child: terminal),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Clamps one dock dimension while reserving usable space for the editor.
+  ///
+  /// Parameters:
+  /// - [requested]: persisted or dragged terminal dimension.
+  /// - [available]: total width or height of the editor host.
+  /// - [preferredMinimum]: normal minimum terminal dimension.
+  /// - [reservedWorkspace]: normal minimum dimension left for the editor.
+  double _effectiveDockExtent({
+    required double requested,
+    required double available,
+    required double preferredMinimum,
+    required double reservedWorkspace,
+  }) {
+    const dividerExtent = 8.0;
+    final reserved = math.min(reservedWorkspace, available * 0.45);
+    final maximum = math.max(0.0, available - reserved - dividerExtent);
+    final minimum = math.min(preferredMinimum, maximum);
+    return requested.clamp(minimum, maximum);
+  }
+}
+
+/// Drag handle between the document workspace and the terminal dock.
+class _TerminalDockResizeHandle extends StatelessWidget {
+  const _TerminalDockResizeHandle({required this.dock, required this.onDelta});
+
+  /// Dock edge that determines the resize axis and mouse cursor.
+  final TerminalDock dock;
+
+  /// Callback receiving the raw pointer delta along the resize axis.
+  final ValueChanged<double> onDelta;
+
+  /// Builds a stable eight-pixel resize target around a one-pixel rule.
+  @override
+  Widget build(BuildContext context) {
+    final rightDock = dock == TerminalDock.right;
+    return MouseRegion(
+      cursor: rightDock
+          ? SystemMouseCursors.resizeLeftRight
+          : SystemMouseCursors.resizeUpDown,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: rightDock
+            ? (details) => onDelta(details.delta.dx)
+            : null,
+        onVerticalDragUpdate: rightDock
+            ? null
+            : (details) => onDelta(details.delta.dy),
+        child: SizedBox(
+          width: rightDock ? 8 : double.infinity,
+          height: rightDock ? double.infinity : 8,
+          child: Center(
+            child: Container(
+              width: rightDock ? 1 : double.infinity,
+              height: rightDock ? double.infinity : 1,
+              color: AppColors.lineStrong,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _WorkspaceBody extends StatelessWidget {
-  const _WorkspaceBody({required this.controller});
+  const _WorkspaceBody({
+    required this.controller,
+    required this.onShowSettings,
+  });
 
   final AppController controller;
+  final VoidCallback onShowSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -141,7 +281,10 @@ class _WorkspaceBody extends StatelessWidget {
             maxWidth: 43,
             child: SizedBox(
               width: 43,
-              child: _ActivityRail(controller: controller),
+              child: _ActivityRail(
+                controller: controller,
+                onShowSettings: onShowSettings,
+              ),
             ),
           ),
         ),
@@ -190,9 +333,10 @@ class _WorkspaceBody extends StatelessWidget {
 }
 
 class _ActivityRail extends StatelessWidget {
-  const _ActivityRail({required this.controller});
+  const _ActivityRail({required this.controller, required this.onShowSettings});
 
   final AppController controller;
+  final VoidCallback onShowSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +379,14 @@ class _ActivityRail extends StatelessWidget {
             onPressed: controller.toggleTerminal,
           ),
           const Spacer(),
+          AppIconButton(
+            icon: Icons.tune_rounded,
+            tooltip: '设置',
+            size: 34,
+            iconSize: 17,
+            onPressed: onShowSettings,
+          ),
+          const SizedBox(height: 4),
           AppIconButton(
             icon: controller.showExplorerContent
                 ? Icons.keyboard_double_arrow_left_rounded

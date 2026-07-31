@@ -244,22 +244,30 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
                         blockSpacing: 12,
                       ),
                       imageBuilder: (uri, title, alt) {
-                        if (uri.hasScheme) {
-                          return Image.network(
-                            uri.toString(),
+                        if (uri.hasScheme && uri.scheme != 'file') {
+                          return GestureDetector(
+                            onTap: () => _openExternal(uri.toString()),
+                            child: Image.network(
+                              uri.toString(),
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  _ImageError(alt: alt),
+                            ),
+                          );
+                        }
+                        final imagePath = uri.scheme == 'file'
+                            ? uri.toFilePath()
+                            : p.normalize(
+                                p.join(p.dirname(widget.path), uri.toString()),
+                              );
+                        return GestureDetector(
+                          onTap: () => widget.onOpenLocalPath?.call(imagePath),
+                          child: Image.file(
+                            File(imagePath),
                             fit: BoxFit.contain,
                             errorBuilder: (context, error, stackTrace) =>
                                 _ImageError(alt: alt),
-                          );
-                        }
-                        final imagePath = p.normalize(
-                          p.join(p.dirname(widget.path), uri.toString()),
-                        );
-                        return Image.file(
-                          File(imagePath),
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) =>
-                              _ImageError(alt: alt),
+                          ),
                         );
                       },
                       onTapLink: (text, href, title) {

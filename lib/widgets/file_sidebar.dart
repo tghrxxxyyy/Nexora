@@ -61,6 +61,7 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
               height: 30,
               child: TextField(
                 controller: _filterController,
+                textAlignVertical: TextAlignVertical.center,
                 onChanged: (value) => setState(() => _filter = value.trim()),
                 style: const TextStyle(fontSize: 11),
                 decoration: InputDecoration(

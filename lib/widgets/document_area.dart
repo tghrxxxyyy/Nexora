@@ -8,6 +8,7 @@ import '../state/app_controller.dart';
 import '../state/editor_session.dart';
 import 'code_editor_view.dart';
 import 'html_preview.dart';
+import 'image_preview.dart';
 import 'markdown_dom_preview.dart';
 import 'markdown_preview.dart';
 import 'ui_primitives.dart';
@@ -208,7 +209,10 @@ class DocumentArea extends StatelessWidget {
   }
 
   Widget _buildMode(EditorSession session) {
-    final canPreview = session.document.isMarkdown || session.document.isHtml;
+    final canPreview =
+        session.document.isMarkdown ||
+        session.document.isHtml ||
+        session.document.isImage;
     if (!canPreview || session.viewMode == MarkdownViewMode.edit) {
       return KeyedSubtree(
         key: ValueKey('${session.document.path}:edit'),
@@ -239,11 +243,15 @@ class DocumentArea extends StatelessWidget {
       controller: session.editorController,
       findController: session.findController,
       wordWrap: session.wordWrap,
+      fontScale: controller.fontScale,
       onChanged: (_) {},
     );
   }
 
   Widget _preview(EditorSession session) {
+    if (session.document.isImage) {
+      return ImagePreview(path: session.document.path);
+    }
     if (session.document.isHtml) {
       return HtmlPreview(
         path: session.document.path,
@@ -280,6 +288,7 @@ class DocumentArea extends StatelessWidget {
       previewJumpId: session.previewJumpId,
       findController: session.previewFindController,
       themeMode: controller.themeMode,
+      fontScale: controller.fontScale,
       onContentChanged: session.replaceContentFromPreview,
       onOpenLocalPath: controller.openPath,
       onOpenAnchor: (anchor) {
@@ -535,13 +544,13 @@ class _LaunchSurface extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Image.asset(
-            'assets/icon/x-file-icon-1024.png',
+            'assets/icon/nexora-icon-1024.png',
             width: 116,
             height: 116,
           ),
           const SizedBox(height: 22),
           Text(
-            'x-file',
+            'Nexora',
             style: TextStyle(
               color: AppColors.text,
               fontSize: 33,

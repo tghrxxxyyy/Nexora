@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Nexora app icon</title>
+  <desc id="desc">A luminous N set within an orbital connection field.</desc>
+  <defs>
+    <linearGradient id="ground" x1="118" y1="74" x2="906" y2="951" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101C3B"/>
+      <stop offset="0.48" stop-color="#172D58"/>
+      <stop offset="1" stop-color="#4B215B"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="0" cy="0" r="1" gradientTransform="translate(475 461) rotate(54) scale(505 481)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#88D9FF" stop-opacity=".34"/>
+      <stop offset=".55" stop-color="#6274FF" stop-opacity=".11"/>
+      <stop offset="1" stop-color="#F071C4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="orbit" x1="193" y1="757" x2="838" y2="256" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#71EDFF" stop-opacity=".3"/>
+      <stop offset=".45" stop-color="#D9F7FF" stop-opacity=".94"/>
+      <stop offset="1" stop-color="#D697FF" stop-opacity=".36"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="343" y1="253" x2="700" y2="771" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FEFF"/>
+      <stop offset=".42" stop-color="#9BEFFF"/>
+      <stop offset=".76" stop-color="#8FA4FF"/>
+      <stop offset="1" stop-color="#F4A8E0"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="698" y1="289" x2="809" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7FC"/>
+      <stop offset="1" stop-color="#FFAFDD"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+    <filter id="letterGlow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="13"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="226" fill="url(#ground)"/>
+  <rect x="22" y="22" width="980" height="980" rx="204" fill="none" stroke="#BEEBFF" stroke-opacity=".12" stroke-width="4"/>
+  <circle cx="512" cy="507" r="406" fill="url(#aura)"/>
+  <path d="M198 661C291 827 508 886 690 793C839 718 902 560 839 402" fill="none" stroke="#8DE9FF" stroke-opacity=".32" stroke-width="30" filter="url(#softGlow)"/>
+  <path d="M197 661C292 827 508 886 690 793C839 718 902 560 839 402" fill="none" stroke="url(#orbit)" stroke-linecap="round" stroke-width="9"/>
+  <path d="M236 357C339 190 554 139 737 228C781 250 820 282 851 323" fill="none" stroke="#C2F4FF" stroke-opacity=".24" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="200" cy="661" r="31" fill="#76E9FF" filter="url(#softGlow)"/>
+  <circle cx="200" cy="661" r="15" fill="#E8FDFF"/>
+  <circle cx="839" cy="402" r="27" fill="#F3A5DF" filter="url(#softGlow)"/>
+  <circle cx="839" cy="402" r="12" fill="url(#spark)"/>
+  <circle cx="851" cy="323" r="9" fill="#B8EBFF"/>
+  <circle cx="737" cy="228" r="7" fill="#EDC4FF"/>
+  <path d="M340 737V294C340 269 370 258 385 279L642 632V290" fill="none" stroke="#78DFFF" stroke-opacity=".38" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" filter="url(#letterGlow)"/>
+  <path d="M340 737V294C340 269 370 258 385 279L642 632V290" fill="none" stroke="url(#letter)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M392 337L600 622" fill="none" stroke="#FFFFFF" stroke-opacity=".48" stroke-width="7" stroke-linecap="round"/>
+  <path d="M697 301L709 333L741 345L709 357L697 389L685 357L653 345L685 333Z" fill="url(#spark)"/>
+</svg>

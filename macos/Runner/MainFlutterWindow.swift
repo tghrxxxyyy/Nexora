@@ -8,7 +8,7 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
-    title = "x-file"
+    title = "Nexora"
     titleVisibility = .hidden
     titlebarAppearsTransparent = true
     if #available(macOS 11.0, *) {

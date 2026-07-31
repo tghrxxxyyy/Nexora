@@ -19,8 +19,6 @@ class StatusBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9),
       child: Row(
         children: [
-          const _LiveIndicator(),
-          const SizedBox(width: 12),
           if (session != null)
             ValueListenableBuilder<CodeLineEditingValue>(
               valueListenable: session.editorController,
@@ -93,65 +91,6 @@ class StatusBar extends StatelessWidget {
       AppMessageTone.error => AppColors.coral,
       AppMessageTone.neutral => AppColors.textMuted,
     };
-  }
-}
-
-class _LiveIndicator extends StatefulWidget {
-  const _LiveIndicator();
-
-  @override
-  State<_LiveIndicator> createState() => _LiveIndicatorState();
-}
-
-class _LiveIndicatorState extends State<_LiveIndicator>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: AppColors.signal.withValues(
-                alpha: 0.55 + _controller.value * 0.45,
-              ),
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            'LIVE',
-            style: TextStyle(
-              color: AppColors.signal,
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              fontFamily: 'MapleMonoCN',
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

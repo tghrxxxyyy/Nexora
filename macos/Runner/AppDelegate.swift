@@ -44,14 +44,58 @@ class AppDelegate: FlutterAppDelegate {
 
   private func configureStatusItem() {
     if let button = statusItem.button {
-      button.image = nil
-      button.title = "X"
-      button.font = NSFont.systemFont(ofSize: 14, weight: .bold)
-      button.imagePosition = .noImage
-      button.toolTip = "x-file"
+      button.image = makeStatusItemImage()
+      button.title = ""
+      button.imagePosition = .imageOnly
+      button.toolTip = "Nexora"
     }
     statusItem.menu = statusMenu
     rebuildStatusMenu()
+  }
+
+  private func makeStatusItemImage() -> NSImage {
+    let image = NSImage(size: NSSize(width: 18, height: 18))
+    image.lockFocus()
+    let scale = 18.0 / 64.0
+    let context = NSGraphicsContext.current!.cgContext
+    context.translateBy(x: 0, y: 18)
+    context.scaleBy(x: scale, y: -scale)
+
+    NSColor.black.setFill()
+    let mark = NSBezierPath()
+    mark.move(to: NSPoint(x: 14, y: 49))
+    mark.line(to: NSPoint(x: 14, y: 16))
+    mark.line(to: NSPoint(x: 22, y: 11))
+    mark.line(to: NSPoint(x: 42, y: 38))
+    mark.line(to: NSPoint(x: 42, y: 16))
+    mark.line(to: NSPoint(x: 50, y: 21))
+    mark.line(to: NSPoint(x: 50, y: 49))
+    mark.line(to: NSPoint(x: 42, y: 54))
+    mark.line(to: NSPoint(x: 22, y: 27))
+    mark.line(to: NSPoint(x: 22, y: 54))
+    mark.close()
+    mark.fill()
+
+    NSColor.black.withAlphaComponent(0.42).setFill()
+    let topFacet = NSBezierPath()
+    topFacet.move(to: NSPoint(x: 22, y: 11))
+    topFacet.line(to: NSPoint(x: 50, y: 21))
+    topFacet.line(to: NSPoint(x: 42, y: 26))
+    topFacet.line(to: NSPoint(x: 22, y: 16))
+    topFacet.close()
+    topFacet.fill()
+
+    NSColor.black.withAlphaComponent(0.54).setFill()
+    let sideFacet = NSBezierPath()
+    sideFacet.move(to: NSPoint(x: 42, y: 43))
+    sideFacet.line(to: NSPoint(x: 50, y: 38))
+    sideFacet.line(to: NSPoint(x: 50, y: 49))
+    sideFacet.line(to: NSPoint(x: 42, y: 54))
+    sideFacet.close()
+    sideFacet.fill()
+    image.unlockFocus()
+    image.isTemplate = true
+    return image
   }
 
   func configureMethodChannel(_ flutterViewController: FlutterViewController) {
@@ -59,7 +103,7 @@ class AppDelegate: FlutterAppDelegate {
       return
     }
     let channel = FlutterMethodChannel(
-      name: "com.xuyu.xfile/status_menu",
+      name: "com.xuyu.nexora/status_menu",
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
     methodChannel = channel
@@ -99,7 +143,7 @@ class AppDelegate: FlutterAppDelegate {
   private func rebuildStatusMenu() {
     statusMenu.removeAllItems()
     let showItem = NSMenuItem(
-      title: "显示 x-file",
+      title: "显示 Nexora",
       action: #selector(showMainWindow(_:)),
       keyEquivalent: ""
     )

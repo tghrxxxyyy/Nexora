@@ -1,14 +1,14 @@
-# x-file
+# Nexora
 
 <p align="center">
-  <img src="assets/icon/x-file-icon-1024.png" width="132" alt="x-file icon">
+  <img src="assets/icon/nexora-icon-1024.png" width="132" alt="Nexora icon">
 </p>
 
 <p align="center">
-  <a href="https://github.com/tghrxxxyyy/x-file/releases"><img src="https://img.shields.io/github/v/release/tghrxxxyyy/x-file?color=%23167C6E&style=flat-square" alt="release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-%23167C6E?style=flat-square" alt="license"></a>
-  <a href="#"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-%23167C6E?style=flat-square" alt="platform"></a>
-  <a href="#"><img src="https://img.shields.io/badge/flutter-%5E3.12-%23167C6E?style=flat-square" alt="flutter"></a>
+  <a href="https://github.com/tghrxxxyyy/x-file/releases"><img src="https://img.shields.io/github/v/release/tghrxxxyyy/x-file?color=%233B82F6&style=flat-square" alt="release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-%233B82F6?style=flat-square" alt="license"></a>
+  <a href="#"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-%233B82F6?style=flat-square" alt="platform"></a>
+  <a href="#"><img src="https://img.shields.io/badge/flutter-%5E3.12-%233B82F6?style=flat-square" alt="flutter"></a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 ## 项目简介
 
-**x-file** 是使用 Flutter 构建的本地文件工作台。它将文件树、编辑器、预览、目录和终端放进一个紧凑的桌面界面，适合阅读文档、浏览项目文件和进行轻量编辑。
+**Nexora** 是使用 Flutter 构建的本地文件工作台。它将文件树、编辑器、预览、目录和终端放进一个紧凑的桌面界面，适合阅读文档、浏览项目文件和进行轻量编辑。
 
 Markdown 是当前的重点体验：默认以预览方式打开，支持在预览中直接编辑、目录定位和内容查找。HTML 文件可使用原生 WebView 预览，也可一键交给 Chrome 打开。编辑器同时为常见文本与代码文件提供语法高亮。
 
@@ -39,7 +39,7 @@ Markdown 是当前的重点体验：默认以预览方式打开，支持在预�
 - **查找与替换**：当前文件查找、预览内查找、文件夹范围的全局查找与替换。
 - **实时同步**：监听已打开的本地文件和文件夹；外部文件变化会同步提示或刷新。
 - **会话恢复**：启动时重新载入上次打开的文件和目录，保留最近打开的 10 项记录。
-- **内置终端**：从当前工作区路径启动 Shell，在应用底部执行命令并查看输出。
+- **内置终端**：通过本机 PTY 启动用户的交互式登录 Shell，可直接使用原有 Shell 配置与插件；支持底部/右侧停靠、多个独立终端、上下或左右分屏及拖动调整尺寸。
 - **主题与界面**：提供亮色和暗色主题；当前亮色主题采用克制的白色基底与蓝色强调。
 
 ## 支持的文件
@@ -107,7 +107,7 @@ flutter build linux --release
 构建产物位于对应平台的 `build/<platform>/Build/Products/Release/` 目录。macOS 应用路径为：
 
 ```text
-build/macos/Build/Products/Release/x-file.app
+build/macos/Build/Products/Release/Nexora.app
 ```
 
 ### macOS 正式打包
@@ -119,31 +119,31 @@ flutter clean
 flutter pub get
 flutter build macos --release
 
-RELEASE_VERSION="1.0.19"
-RELEASE_APP="build/macos/Build/Products/Release/x-file.app"
-RELEASE_DMG="dist/x-file-${RELEASE_VERSION}-macos-arm64.dmg"
+RELEASE_VERSION="1.0.34"
+RELEASE_APP="build/macos/Build/Products/Release/Nexora.app"
+RELEASE_DMG="dist/Nexora-${RELEASE_VERSION}-macos-arm64.dmg"
 
 mkdir -p dist
 hdiutil create \
-  -volname "x-file" \
+  -volname "Nexora" \
   -srcfolder "$RELEASE_APP" \
   -ov \
   -format UDZO \
   "$RELEASE_DMG"
 ```
 
-将 `RELEASE_VERSION` 改为本次 `pubspec.yaml` 中的显示版本。发布目录只保留当前版本的 `x-file-<version>-macos-arm64.dmg`，避免混入旧安装包。
+将 `RELEASE_VERSION` 改为本次 `pubspec.yaml` 中的显示版本。发布目录只保留当前版本的 `Nexora-<version>-macos-arm64.dmg`，避免混入旧安装包。
 
 ### 安装或更新 macOS 应用
 
-如果需要直接将构建产物更新到本机 `/Applications`，先关闭正在运行的 x-file，再原位同步应用内容：
+如果需要直接将构建产物更新到本机 `/Applications`，先关闭正在运行的 Nexora，再原位同步应用内容：
 
 ```bash
-RELEASE_APP="build/macos/Build/Products/Release/x-file.app"
-INSTALL_APP="/Applications/x-file.app"
+RELEASE_APP="build/macos/Build/Products/Release/Nexora.app"
+INSTALL_APP="/Applications/Nexora.app"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
-pkill -f "/Applications/x-file.app/Contents/MacOS/x-file" || true
+pkill -f "/Applications/Nexora.app/Contents/MacOS/Nexora" || true
 rsync -a --delete "$RELEASE_APP/" "$INSTALL_APP/"
 "$LSREGISTER" -u "$RELEASE_APP" || true
 "$LSREGISTER" -f "$INSTALL_APP"
@@ -151,7 +151,7 @@ flutter clean
 killall Dock 2>/dev/null || true
 ```
 
-`flutter clean` 会移除构建目录中的 `.app`。这一步很重要：macOS 可能将构建目录里的应用也登记到 Launchpad，从而显示重复图标。正式安装后应只保留 `/Applications/x-file.app` 这一个应用副本。
+`flutter clean` 会移除构建目录中的 `.app`。这一步很重要：macOS 可能将构建目录里的应用也登记到 Launchpad，从而显示重复图标。正式安装后应只保留 `/Applications/Nexora.app` 这一个应用副本。
 
 ## 项目结构
 
@@ -174,6 +174,7 @@ assets/
 - [Flutter](https://flutter.dev/) / Dart
 - `re_editor` 与 `re_highlight`：代码编辑和语法高亮
 - `webview_flutter`：HTML 与 Markdown DOM 预览
+- `xterm` 与 `pty2`：ANSI 终端渲染、直接键盘输入与跨平台伪终端
 - `watcher`：本地文件变化监听
 - `file_selector`：原生文件与目录选择
 

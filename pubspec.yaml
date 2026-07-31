@@ -1,5 +1,5 @@
-name: x_file
-description: "x-file - a realtime cross-platform file viewer and editor."
+name: nexora
+description: "Nexora - a realtime cross-platform file viewer and editor."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.29+30
+version: 1.0.34+35
 
 environment:
   sdk: ^3.12.0
@@ -41,6 +41,8 @@ dependencies:
   re_highlight: ^0.0.3
   flutter_markdown_plus: ^1.0.12
   markdown: ^7.3.1
+  pty2: ^0.5.3
+  xterm: ^4.0.0
   webview_flutter: ^4.13.0
   path_provider: ^2.1.5
   webview_win_floating: 3.0.3
@@ -67,7 +69,7 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets:
-    - assets/icon/x-file-icon-1024.png
+    - assets/icon/nexora-icon-1024.png
     - assets/terminal/xterm_shell.html
   fonts:
     - family: MapleMonoCN

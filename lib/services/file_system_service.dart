@@ -74,6 +74,17 @@ class FileSystemService {
     if (stat.type != FileSystemEntityType.file) {
       throw FileSystemException('Path is not a file', normalizedPath);
     }
+    if (DocumentModel.isImagePath(normalizedPath)) {
+      return DocumentModel(
+        path: normalizedPath,
+        name: p.basename(normalizedPath),
+        content: '',
+        savedContent: '',
+        size: stat.size,
+        modifiedAt: stat.modified,
+      );
+    }
+
     if (stat.size > maximumBytes) {
       throw FileTooLargeException(normalizedPath, stat.size, maximumBytes);
     }

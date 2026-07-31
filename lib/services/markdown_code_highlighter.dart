@@ -46,9 +46,9 @@ class MarkdownCodeHighlighter {
       final highlighted = _highlightSource(source, language);
       final displayLabel = label ?? 'text';
       final escapedLabel = const HtmlEscape().convert(displayLabel);
-      return '<div class="x-file-code-block" '
-          'data-x-file-language="$displayLabel">'
-          '<span class="x-file-code-language" '
+      return '<div class="nexora-code-block" '
+          'data-nexora-language="$displayLabel">'
+          '<span class="nexora-code-language" '
           'contenteditable="false">$escapedLabel</span>'
           '<pre><code class="hljs language-$displayLabel">$highlighted</code></pre>'
           '</div>';

@@ -22,6 +22,7 @@ class MarkdownDomPreview extends StatefulWidget {
     required this.previewJumpId,
     required this.findController,
     required this.themeMode,
+    required this.fontScale,
     this.onContentChanged,
     this.onOpenLocalPath,
     this.onOpenAnchor,
@@ -35,6 +36,7 @@ class MarkdownDomPreview extends StatefulWidget {
   final int previewJumpId;
   final PreviewFindController findController;
   final AppThemeMode themeMode;
+  final double fontScale;
   final ValueChanged<String>? onContentChanged;
   final ValueChanged<String>? onOpenLocalPath;
   final ValueChanged<String>? onOpenAnchor;
@@ -76,7 +78,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
-        'XFileBridge',
+        'NexoraBridge',
         onMessageReceived: _handleBridgeMessage,
       )
       ..setNavigationDelegate(
@@ -132,6 +134,10 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       unawaited(_updateHeadingAnchors());
     } else if (widget.themeMode != oldWidget.themeMode) {
       unawaited(_refreshThemedDocument());
+    } else if (widget.fontScale != oldWidget.fontScale) {
+      unawaited(
+        _runJavaScript('window.nexoraSetFontScale(${widget.fontScale});'),
+      );
     } else if (widget.content != oldWidget.content ||
         widget.path != oldWidget.path ||
         widget.headings != oldWidget.headings) {
@@ -251,7 +257,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       '${p.dirname(widget.path)}${Platform.pathSeparator}',
     ).toString();
     await _runJavaScript(
-      'window.xFileReplaceDocument('
+      'window.nexoraReplaceDocument('
       '${jsonEncode(_markdownHtml())}, ${jsonEncode(baseUrl)}'
       ');',
     );
@@ -261,17 +267,17 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
 
   Future<void> _updateHeadingAnchors() {
     final anchors = widget.headings.map((heading) => heading.anchor).toList();
-    return _runJavaScript('window.xFileSetAnchors(${jsonEncode(anchors)});');
+    return _runJavaScript('window.nexoraSetAnchors(${jsonEncode(anchors)});');
   }
 
   Future<void> _flushPageCommands() async {
     if (!_pageReady) return;
-    await _runJavaScript('requestAnimationFrame(() => window.xFileReady());');
+    await _runJavaScript('requestAnimationFrame(() => window.nexoraReady());');
     await _updateHeadingAnchors();
     final anchor = _pendingAnchor;
     _pendingAnchor = null;
     if (anchor != null && anchor.isNotEmpty) {
-      await _runJavaScript('window.xFileScrollTo(${jsonEncode(anchor)});');
+      await _runJavaScript('window.nexoraScrollTo(${jsonEncode(anchor)});');
     }
     await _syncFind(force: true);
   }
@@ -309,12 +315,12 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     _observedNavigationRequestId = findController.navigationRequestId;
     if (!_pageReady) return;
     if (!findController.isOpen) {
-      await _runJavaScript('window.xFileClearFind();');
+      await _runJavaScript('window.nexoraClearFind();');
       return;
     }
     if (searchChanged) {
       await _runJavaScript(
-        'window.xFileFind('
+        'window.nexoraFind('
         '${jsonEncode(findController.query)}, '
         '${findController.caseSensitive}, '
         '${findController.activeIndex}, '
@@ -325,7 +331,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     }
     if (navigationChanged) {
       await _runJavaScript(
-        'window.xFileActivate(${findController.activeIndex}, true);',
+        'window.nexoraActivate(${findController.activeIndex}, true);',
       );
     }
   }
@@ -341,7 +347,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
         widget.findController.updateMatchCount(count.toInt());
         unawaited(
           _runJavaScript(
-            'window.xFileActivate(${widget.findController.activeIndex}, false);',
+            'window.nexoraActivate(${widget.findController.activeIndex}, false);',
           ),
         );
         return;
@@ -351,6 +357,11 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
         if (markdown is! String || markdown == widget.content) return;
         _pendingPreviewContent = markdown;
         widget.onContentChanged?.call(markdown);
+        return;
+      }
+      if (type == 'image') {
+        final source = value['src'];
+        if (source is String) _openImage(source);
         return;
       }
       final href = value['href'];
@@ -379,6 +390,22 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     if (relativePath.isEmpty) return;
     final localPath = p.normalize(p.join(p.dirname(widget.path), relativePath));
     widget.onOpenLocalPath?.call(localPath);
+  }
+
+  void _openImage(String source) {
+    final decodedSource = Uri.decodeFull(source);
+    final uri = Uri.tryParse(decodedSource);
+    if (uri != null && uri.scheme == 'file') {
+      widget.onOpenLocalPath?.call(uri.toFilePath());
+      return;
+    }
+    if (uri != null && uri.hasScheme) {
+      unawaited(_openExternal(uri.toString()));
+      return;
+    }
+    widget.onOpenLocalPath?.call(
+      p.normalize(p.join(p.dirname(widget.path), decodedSource)),
+    );
   }
 
   String? _resolveAnchor(String requestedAnchor) {
@@ -433,7 +460,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
 <style>${_styleSheet()}</style>
 </head>
 <body>
-<main id="x-file-document" contenteditable="true" spellcheck="false" tabindex="0">$markdownHtml</main>
+<main id="nexora-document" contenteditable="true" spellcheck="false" tabindex="0">$markdownHtml</main>
 <script>$_bridgeScript</script>
 </body>
 </html>''';
@@ -458,7 +485,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   String _styleSheet() {
     final dark = widget.themeMode == AppThemeMode.dark;
     return '''
-:root { color-scheme: ${dark ? 'dark' : 'light'}; }
+:root { color-scheme: ${dark ? 'dark' : 'light'}; --nexora-font-scale: ${widget.fontScale}; }
 * { box-sizing: border-box; }
 html {
   width: 100%;
@@ -473,13 +500,13 @@ body {
   color: ${_color(AppColors.text)};
   background: ${_color(AppColors.background)};
   font-family: "Maple Mono", "SF Mono", "PingFang SC", "Noto Sans CJK SC", monospace;
-  font-size: 15px;
+  font-size: calc(15px * var(--nexora-font-scale));
   line-height: 1.72;
   letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-#x-file-document {
+#nexora-document {
   width: min(100%, 1120px);
   margin: 0 auto;
   padding: 36px 46px 96px;
@@ -488,15 +515,15 @@ body {
   -webkit-user-select: text;
   user-select: text;
 }
-#x-file-document, #x-file-document * { -webkit-user-select: text; user-select: text; }
-#x-file-document:focus { background: transparent; }
+#nexora-document, #nexora-document * { -webkit-user-select: text; user-select: text; }
+#nexora-document:focus { background: transparent; }
 h1, h2, h3, h4, h5, h6 { scroll-margin-top: 28px; color: ${_color(AppColors.text)}; }
-h1 { margin: 10px 0 14px; font-size: 31px; font-weight: 300; line-height: 1.35; }
-h2 { margin: 22px 0 10px; font-size: 23px; font-weight: 600; line-height: 1.4; }
-h3 { margin: 18px 0 8px; color: ${_color(AppColors.text)}; font-size: 18px; font-weight: 600; line-height: 1.45; }
-h4 { margin: 14px 0 7px; font-size: 15px; font-weight: 700; }
-h5 { margin: 14px 0 7px; color: ${_color(AppColors.textMuted)}; font-size: 14px; font-weight: 700; }
-h6 { margin: 14px 0 7px; color: ${_color(AppColors.textMuted)}; font-size: 12px; font-weight: 700; }
+h1 { margin: 10px 0 14px; font-size: calc(31px * var(--nexora-font-scale)); font-weight: 300; line-height: 1.35; }
+h2 { margin: 22px 0 10px; font-size: calc(23px * var(--nexora-font-scale)); font-weight: 600; line-height: 1.4; }
+h3 { margin: 18px 0 8px; color: ${_color(AppColors.text)}; font-size: calc(18px * var(--nexora-font-scale)); font-weight: 600; line-height: 1.45; }
+h4 { margin: 14px 0 7px; font-size: calc(15px * var(--nexora-font-scale)); font-weight: 700; }
+h5 { margin: 14px 0 7px; color: ${_color(AppColors.textMuted)}; font-size: calc(14px * var(--nexora-font-scale)); font-weight: 700; }
+h6 { margin: 14px 0 7px; color: ${_color(AppColors.textMuted)}; font-size: calc(12px * var(--nexora-font-scale)); font-weight: 700; }
 p { margin: 0 0 8px; }
 a { color: ${_color(AppColors.signal)}; text-decoration-color: ${_color(AppColors.signalDim)}; text-underline-offset: 3px; }
 strong { color: ${_color(AppColors.text)}; font-weight: 700; }
@@ -518,7 +545,7 @@ pre {
   border-radius: 5px;
 }
 pre code { padding: 0; color: inherit; background: transparent; }
-.x-file-code-block {
+.nexora-code-block {
   position: relative;
   margin: 16px 0;
   overflow: hidden;
@@ -527,17 +554,17 @@ pre code { padding: 0; color: inherit; background: transparent; }
   border-radius: 7px;
   box-shadow: none;
 }
-.x-file-code-block pre {
+.nexora-code-block pre {
   margin: 0;
   padding: 39px 20px 20px;
   border-radius: 0;
   background: transparent;
   font-family: "Maple Mono", "SF Mono", Consolas, monospace;
-  font-size: 13px;
+  font-size: calc(13px * var(--nexora-font-scale));
   line-height: 1.68;
   tab-size: 2;
 }
-.x-file-code-language {
+.nexora-code-language {
   position: absolute;
   z-index: 1;
   top: 10px;
@@ -583,13 +610,13 @@ tbody tr { background: #fbfcfe; }
 th, td { padding: 10px 14px; vertical-align: top; text-align: left; }
 th { color: ${_color(AppColors.text)}; font-weight: 700; }
 td { font-size: 13px; }
-img { display: block; max-width: 100%; height: auto; margin: 16px 0; }
-mark.x-file-find { color: inherit; background: rgba(${_rgb(AppColors.amber)}, 0.30); border-radius: 3px; padding: 0 1px; }
-mark.x-file-find.x-file-find-active { background: rgba(${_rgb(AppColors.signal)}, 0.36); }
+img { display: block; max-width: 100%; height: auto; margin: 16px 0; cursor: zoom-in; -webkit-user-drag: none; }
+mark.nexora-find { color: inherit; background: rgba(${_rgb(AppColors.amber)}, 0.30); border-radius: 3px; padding: 0 1px; }
+mark.nexora-find.nexora-find-active { background: rgba(${_rgb(AppColors.signal)}, 0.36); }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: rgba(${_rgb(AppColors.lineStrong)}, 0.78); border: 2px solid transparent; border-radius: 999px; background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
-@media (max-width: 720px) { #x-file-document { padding: 24px 22px 72px; } h1 { font-size: 27px; } h2 { font-size: 21px; } }
+@media (max-width: 720px) { #nexora-document { padding: 24px 22px 72px; } h1 { font-size: 27px; } h2 { font-size: 21px; } }
 ''';
   }
 
@@ -603,15 +630,18 @@ mark.x-file-find.x-file-find-active { background: rgba(${_rgb(AppColors.signal)}
 }
 
 const _bridgeScript = r'''
-window.xFileReady = function() {};
-window.xFileMatches = [];
-window.xFileInputTimer = null;
-window.xFileSelectionTimer = null;
-window.xFilePendingContentSync = false;
+window.nexoraReady = function() {};
+window.nexoraSetFontScale = function(value) {
+  document.documentElement.style.setProperty('--nexora-font-scale', value);
+};
+window.nexoraMatches = [];
+window.nexoraInputTimer = null;
+window.nexoraSelectionTimer = null;
+window.nexoraPendingContentSync = false;
 
-window.xFilePostMessage = function(message) {
-  if (window.XFileBridge && window.XFileBridge.postMessage) {
-    window.XFileBridge.postMessage(JSON.stringify(message));
+window.nexoraPostMessage = function(message) {
+  if (window.NexoraBridge && window.NexoraBridge.postMessage) {
+    window.NexoraBridge.postMessage(JSON.stringify(message));
     return;
   }
   if (window.chrome && window.chrome.webview) {
@@ -619,14 +649,14 @@ window.xFilePostMessage = function(message) {
   }
 };
 
-window.xFileSetAnchors = function(anchors) {
-  var headings = document.querySelectorAll('#x-file-document h1, #x-file-document h2, #x-file-document h3, #x-file-document h4, #x-file-document h5, #x-file-document h6');
+window.nexoraSetAnchors = function(anchors) {
+  var headings = document.querySelectorAll('#nexora-document h1, #nexora-document h2, #nexora-document h3, #nexora-document h4, #nexora-document h5, #nexora-document h6');
   headings.forEach(function(heading, index) {
     heading.id = anchors[index] || '';
   });
 };
 
-window.xFileToMarkdown = function(root) {
+window.nexoraToMarkdown = function(root) {
   function children(node) {
     return Array.prototype.map.call(node.childNodes, serialize).join('');
   }
@@ -684,10 +714,10 @@ window.xFileToMarkdown = function(root) {
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
     var tag = node.tagName.toLowerCase();
     var value = children(node);
-    if (node.classList.contains('x-file-code-language')) return '';
-    if (node.classList.contains('x-file-code-block')) {
+    if (node.classList.contains('nexora-code-language')) return '';
+    if (node.classList.contains('nexora-code-block')) {
       var fencedCode = node.querySelector('pre code');
-      var fencedLanguage = node.dataset.xFileLanguage || '';
+      var fencedLanguage = node.dataset.nexoraLanguage || '';
       var fence = fencedLanguage && fencedLanguage !== 'text' ? fencedLanguage : '';
       return '```' + fence + '\n' +
           ((fencedCode && fencedCode.textContent) || '').replace(/^\n+|\n+$/g, '') +
@@ -729,101 +759,99 @@ window.xFileToMarkdown = function(root) {
   return markdown ? markdown + '\n' : '';
 };
 
-window.xFileSendContent = function() {
-  var root = document.getElementById('x-file-document');
+window.nexoraSendContent = function() {
+  var root = document.getElementById('nexora-document');
   if (!root) return;
   var selection = window.getSelection();
   if (selection && !selection.isCollapsed) {
-    window.xFilePendingContentSync = true;
+    window.nexoraPendingContentSync = true;
     return;
   }
-  window.xFilePendingContentSync = false;
-  window.xFileClearFind();
-  window.xFilePostMessage({
+  window.nexoraPendingContentSync = false;
+  window.nexoraClearFind();
+  window.nexoraPostMessage({
     type: 'content',
-    markdown: window.xFileToMarkdown(root)
+    markdown: window.nexoraToMarkdown(root)
   });
 };
 
-window.xFileAttachEditor = function() {
-  var root = document.getElementById('x-file-document');
-  if (!root || root.dataset.xFileEditorAttached) return;
-  root.dataset.xFileEditorAttached = 'true';
+window.nexoraAttachEditor = function() {
+  var root = document.getElementById('nexora-document');
+  if (!root || root.dataset.nexoraEditorAttached) return;
+  root.dataset.nexoraEditorAttached = 'true';
   root.addEventListener('input', function() {
-    window.clearTimeout(window.xFileInputTimer);
-    window.xFileInputTimer = window.setTimeout(window.xFileSendContent, 220);
+    window.clearTimeout(window.nexoraInputTimer);
+    window.nexoraInputTimer = window.setTimeout(window.nexoraSendContent, 220);
   });
   root.addEventListener('pointerdown', function() {
-    root.contentEditable = 'false';
-    window.clearTimeout(window.xFileSelectionTimer);
+    window.clearTimeout(window.nexoraSelectionTimer);
   }, true);
   root.addEventListener('pointerup', function() {
     window.requestAnimationFrame(function() {
       var selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
-      root.contentEditable = 'true';
       root.focus({ preventScroll: true });
     });
   }, true);
   document.addEventListener('selectionchange', function() {
-    if (!window.xFilePendingContentSync) return;
+    if (!window.nexoraPendingContentSync) return;
     var selection = window.getSelection();
     if (selection && !selection.isCollapsed) return;
-    window.clearTimeout(window.xFileSelectionTimer);
-    window.xFileSelectionTimer = window.setTimeout(window.xFileSendContent, 80);
+    window.clearTimeout(window.nexoraSelectionTimer);
+    window.nexoraSelectionTimer = window.setTimeout(window.nexoraSendContent, 80);
   });
 };
 
-window.xFileReplaceDocument = function(html, baseHref) {
-  window.xFileClearFind();
-  var root = document.getElementById('x-file-document');
+window.nexoraReplaceDocument = function(html, baseHref) {
+  window.nexoraClearFind();
+  var root = document.getElementById('nexora-document');
   if (!root) return;
   root.contentEditable = 'true';
   root.innerHTML = html;
   var base = document.querySelector('base');
   if (base) base.href = baseHref;
   window.scrollTo({ top: 0, behavior: 'instant' });
-  window.xFileAttachEditor();
+  window.nexoraAttachEditor();
 };
 
-window.xFileClearFind = function() {
-  document.querySelectorAll('mark[data-x-file-find]').forEach(function(mark) {
+window.nexoraClearFind = function() {
+  document.querySelectorAll('mark[data-nexora-find]').forEach(function(mark) {
     mark.replaceWith(document.createTextNode(mark.textContent || ''));
   });
-  var root = document.getElementById('x-file-document');
+  var root = document.getElementById('nexora-document');
   if (root) root.normalize();
-  window.xFileMatches = [];
+  window.nexoraMatches = [];
 };
 
-window.xFileActivate = function(requestedIndex, shouldScroll) {
-  var matches = window.xFileMatches || [];
+window.nexoraActivate = function(requestedIndex, shouldScroll) {
+  var matches = window.nexoraMatches || [];
   matches.forEach(function(match) {
-    match.classList.remove('x-file-find-active');
+    match.classList.remove('nexora-find-active');
   });
   if (!matches.length) return;
   var index = Number(requestedIndex);
   if (!Number.isFinite(index) || index < 0) index = 0;
   index = index % matches.length;
   var active = matches[index];
-  active.classList.add('x-file-find-active');
+  active.classList.add('nexora-find-active');
   if (shouldScroll) {
     active.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
   }
 };
 
-window.xFileFind = function(query, caseSensitive, requestedIndex, shouldScroll) {
-  window.xFileClearFind();
+window.nexoraFind = function(query, caseSensitive, requestedIndex, shouldScroll) {
+  window.nexoraClearFind();
   if (!query) {
-    window.xFilePostMessage({ type: 'find', count: 0 });
+    window.nexoraPostMessage({ type: 'find', count: 0 });
     return;
   }
-  var root = document.getElementById('x-file-document');
+  var root = document.getElementById('nexora-document');
   if (!root) return;
   var needle = caseSensitive ? query : query.toLocaleLowerCase();
   var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: function(node) {
       var parent = node.parentElement;
-      if (!parent || parent.closest('script, style, .x-file-code-language')) return NodeFilter.FILTER_REJECT;
+      if (!parent || parent.closest('script, style, .nexora-code-language')) return NodeFilter.FILTER_REJECT;
       return node.nodeValue ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     }
   });
@@ -840,8 +868,8 @@ window.xFileFind = function(query, caseSensitive, requestedIndex, shouldScroll) 
     while (found >= 0) {
       if (found > start) fragment.appendChild(document.createTextNode(text.slice(start, found)));
       var mark = document.createElement('mark');
-      mark.className = 'x-file-find';
-      mark.dataset.xFileFind = '1';
+      mark.className = 'nexora-find';
+      mark.dataset.nexoraFind = '1';
       mark.textContent = text.slice(found, found + query.length);
       fragment.appendChild(mark);
       start = found + query.length;
@@ -850,27 +878,33 @@ window.xFileFind = function(query, caseSensitive, requestedIndex, shouldScroll) 
     if (start < text.length) fragment.appendChild(document.createTextNode(text.slice(start)));
     textNode.replaceWith(fragment);
   });
-  window.xFileMatches = Array.prototype.slice.call(
-    root.querySelectorAll('mark[data-x-file-find]')
+  window.nexoraMatches = Array.prototype.slice.call(
+    root.querySelectorAll('mark[data-nexora-find]')
   );
-  window.xFilePostMessage({ type: 'find', count: window.xFileMatches.length });
-  window.xFileActivate(requestedIndex, shouldScroll);
+  window.nexoraPostMessage({ type: 'find', count: window.nexoraMatches.length });
+  window.nexoraActivate(requestedIndex, shouldScroll);
 };
 
-window.xFileScrollTo = function(anchor) {
+window.nexoraScrollTo = function(anchor) {
   var target = document.getElementById(anchor);
   if (!target) return;
   target.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
 };
 
 document.addEventListener('click', function(event) {
+  var image = event.target.closest('img');
+  if (image) {
+    event.preventDefault();
+    window.nexoraPostMessage({ type: 'image', src: image.currentSrc || image.getAttribute('src') || '' });
+    return;
+  }
   var link = event.target.closest('a');
   if (!link) return;
   var href = link.getAttribute('href');
   if (!href) return;
   event.preventDefault();
-  window.xFilePostMessage({ type: 'link', href: href });
+  window.nexoraPostMessage({ type: 'link', href: href });
 });
 
-window.xFileAttachEditor();
+window.nexoraAttachEditor();
 ''';

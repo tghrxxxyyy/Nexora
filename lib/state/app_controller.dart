@@ -8,14 +8,15 @@ import '../app_theme.dart';
 import '../models/file_change_event.dart';
 import '../models/file_node.dart';
 import '../models/search_models.dart';
+import '../models/terminal_layout.dart';
 import '../models/workspace_item.dart';
 import '../services/file_picker_service.dart';
 import '../services/app_session_store.dart';
 import '../services/file_system_service.dart';
 import '../services/file_watch_service.dart';
 import '../services/global_search_service.dart';
-import '../services/terminal_session.dart';
 import 'editor_session.dart';
+import 'terminal_workspace_controller.dart';
 
 enum ExplorerView { files, search }
 
@@ -29,6 +30,7 @@ class AppController extends ChangeNotifier {
     this._searchService = const GlobalSearchService(),
     this._sessionStore = const AppSessionStore(),
   }) : _watchService = watchService ?? FileWatchService() {
+    terminalWorkspace.addListener(_onTerminalWorkspaceChanged);
     _watchSubscription = _watchService.changes.listen(
       _onFileChanged,
       onError: (Object error, StackTrace stackTrace) {
@@ -42,6 +44,8 @@ class AppController extends ChangeNotifier {
   final FileWatchService _watchService;
   final GlobalSearchService _searchService;
   final AppSessionStore _sessionStore;
+  final TerminalWorkspaceController terminalWorkspace =
+      TerminalWorkspaceController();
   late final StreamSubscription<FileChangeEvent> _watchSubscription;
 
   final List<WorkspaceItem> _workspaces = [];
@@ -60,6 +64,7 @@ class AppController extends ChangeNotifier {
   bool _searching = false;
   bool _globalReplaceRequested = false;
   AppThemeMode _themeMode = AppThemeMode.light;
+  double _fontScale = 1;
   String? _activeHeadingAnchor;
   SearchReport? _searchReport;
   String? _searchError;
@@ -69,8 +74,6 @@ class AppController extends ChangeNotifier {
   Timer? _sessionPersistTimer;
   Future<void> _sessionWriteQueue = Future<void>.value();
   bool _restoringSession = false;
-  bool _showTerminal = false;
-  TerminalSession? _terminalSession;
   bool _sessionRestored = false;
 
   List<WorkspaceItem> get workspaces => List.unmodifiable(_workspaces);
@@ -82,8 +85,7 @@ class AppController extends ChangeNotifier {
   int get activeWorkspaceIndex => _activeWorkspaceIndex;
   bool get leftCollapsed => _leftCollapsed;
   bool get rightCollapsed => _rightCollapsed;
-  bool get showTerminal => _showTerminal;
-  TerminalSession? get terminalSession => _terminalSession;
+  bool get showTerminal => terminalWorkspace.visible;
   String get terminalWorkingDirectory {
     final workspace = activeWorkspace;
     if (workspace == null) return Platform.environment['HOME'] ?? '/';
@@ -95,6 +97,7 @@ class AppController extends ChangeNotifier {
   bool get searching => _searching;
   bool get globalReplaceRequested => _globalReplaceRequested;
   AppThemeMode get themeMode => _themeMode;
+  double get fontScale => _fontScale;
   String? get activeHeadingAnchor => _activeHeadingAnchor;
   SearchReport? get searchReport => _searchReport;
   String? get searchError => _searchError;
@@ -116,7 +119,21 @@ class AppController extends ChangeNotifier {
       _explorerView = state['explorerView'] == ExplorerView.search.name
           ? ExplorerView.search
           : ExplorerView.files;
+      terminalWorkspace.restorePreferences(
+        dock: state['terminalDock'] == TerminalDock.right.name
+            ? TerminalDock.right
+            : TerminalDock.bottom,
+        bottomExtent: state['terminalBottomExtent'] is num
+            ? (state['terminalBottomExtent'] as num).toDouble()
+            : 260,
+        rightExtent: state['terminalRightExtent'] is num
+            ? (state['terminalRightExtent'] as num).toDouble()
+            : 420,
+      );
       _themeMode = AppThemeMode.light;
+      _fontScale = state['fontScale'] is num
+          ? (state['fontScale'] as num).toDouble().clamp(0.85, 1.45).toDouble()
+          : 1;
       AppColors.use(_themeMode);
       _restoreRecentItems(state['recentItems']);
 
@@ -552,15 +569,17 @@ class AppController extends ChangeNotifier {
     _scheduleSessionSave();
   }
 
-  void toggleTerminal() {
-    _showTerminal = !_showTerminal;
-    if (_showTerminal &&
-        (_terminalSession == null || _terminalSession!.isTerminated)) {
-      _terminalSession = TerminalSession(
-        workingDirectory: terminalWorkingDirectory,
-      );
-    }
+  void setFontScale(double value) {
+    final nextValue = value.clamp(0.85, 1.45).toDouble();
+    if ((_fontScale - nextValue).abs() < 0.001) return;
+    _fontScale = nextValue;
     notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Shows or hides the integrated terminal for the active workspace.
+  void toggleTerminal() {
+    terminalWorkspace.toggle(workingDirectory: terminalWorkingDirectory);
   }
 
   void toggleRightSidebar() {
@@ -922,6 +941,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Propagates terminal layout changes and persists dock preferences.
+  void _onTerminalWorkspaceChanged() {
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
   Future<void> _restoreWorkspace(Map<String, dynamic> value) async {
     final path = value['path'];
     final typeName = value['type'];
@@ -1076,6 +1101,10 @@ class AppController extends ChangeNotifier {
       'rightCollapsed': _rightCollapsed,
       'explorerView': _explorerView.name,
       'themeMode': _themeMode.name,
+      'fontScale': _fontScale,
+      'terminalDock': terminalWorkspace.dock.name,
+      'terminalBottomExtent': terminalWorkspace.bottomExtent,
+      'terminalRightExtent': terminalWorkspace.rightExtent,
     };
   }
 
@@ -1116,7 +1145,8 @@ class AppController extends ChangeNotifier {
       session.dispose();
     }
     _watchService.dispose();
-    _terminalSession?.kill();
+    terminalWorkspace.removeListener(_onTerminalWorkspaceChanged);
+    terminalWorkspace.dispose();
     super.dispose();
   }
 }

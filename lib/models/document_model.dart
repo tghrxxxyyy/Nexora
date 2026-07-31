@@ -29,6 +29,24 @@ class DocumentModel {
     return lowerName.endsWith('.html') || lowerName.endsWith('.htm');
   }
 
+  bool get isImage => isImagePath(path);
+
+  static bool isImagePath(String path) {
+    return switch (path.toLowerCase().split('.').last) {
+      'png' ||
+      'jpg' ||
+      'jpeg' ||
+      'gif' ||
+      'webp' ||
+      'bmp' ||
+      'ico' ||
+      'tif' ||
+      'tiff' ||
+      'heic' => true,
+      _ => false,
+    };
+  }
+
   int get lineCount => '\n'.allMatches(content).length + 1;
 
   int get characterCount => content.runes.length;

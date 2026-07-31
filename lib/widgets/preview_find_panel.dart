@@ -50,6 +50,7 @@ class PreviewFindPanel extends StatelessWidget {
               child: TextField(
                 controller: controller.queryController,
                 focusNode: controller.focusNode,
+                textAlignVertical: TextAlignVertical.center,
                 onSubmitted: (_) => controller.nextMatch(),
                 style: TextStyle(color: AppColors.text, fontSize: 12),
                 decoration: const InputDecoration(

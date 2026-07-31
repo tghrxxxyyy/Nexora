@@ -10,21 +10,24 @@ import 'app_theme.dart';
 import 'models/workspace_item.dart';
 import 'state/app_controller.dart';
 import 'widgets/app_shell.dart';
+import 'widgets/settings_dialog.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const XFileApp());
+  runApp(const NexoraApp());
 }
 
-class XFileApp extends StatefulWidget {
-  const XFileApp({super.key});
+class NexoraApp extends StatefulWidget {
+  const NexoraApp({super.key});
 
   @override
-  State<XFileApp> createState() => _XFileAppState();
+  State<NexoraApp> createState() => _NexoraAppState();
 }
 
-class _XFileAppState extends State<XFileApp> {
-  static const _statusMenuChannel = MethodChannel('com.xuyu.xfile/status_menu');
+class _NexoraAppState extends State<NexoraApp> {
+  static const _statusMenuChannel = MethodChannel(
+    'com.xuyu.nexora/status_menu',
+  );
 
   final AppController _controller = AppController();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
@@ -146,25 +149,38 @@ class _XFileAppState extends State<XFileApp> {
       listenable: _controller,
       builder: (context, child) => MaterialApp(
         navigatorKey: _navigatorKey,
-        title: 'X-File',
+        title: 'Nexora',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(_controller.themeMode),
+        builder: (context, child) {
+          final mediaQuery = MediaQuery.of(context);
+          return MediaQuery(
+            data: mediaQuery.copyWith(
+              textScaler: TextScaler.linear(_controller.fontScale),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: _buildHome(),
       ),
     );
   }
 
   Widget _buildHome() {
-    final shell = AppShell(controller: _controller);
+    final shell = AppShell(
+      controller: _controller,
+      onShowSettings: _showSettings,
+    );
     if (!Platform.isMacOS) return shell;
     return PlatformMenuBar(
       menus: [
         PlatformMenu(
-          label: 'x-file',
+          label: 'Nexora',
           menus: [
             const PlatformProvidedMenuItem(
               type: PlatformProvidedMenuItemType.about,
             ),
+            PlatformMenuItem(label: '设置...', onSelected: _showSettings),
             const PlatformMenuItemGroup(
               members: [
                 PlatformProvidedMenuItem(
@@ -316,6 +332,15 @@ class _XFileAppState extends State<XFileApp> {
   String _recentLabel(WorkspaceItem item) {
     final parent = p.basename(p.dirname(item.path));
     return parent.isEmpty ? item.name : '${item.name}  -  $parent';
+  }
+
+  void _showSettings() {
+    final context = _navigatorKey.currentContext;
+    if (context == null) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => SettingsDialog(controller: _controller),
+    );
   }
 }
 

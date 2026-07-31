@@ -28,6 +28,7 @@ class CodeEditorView extends StatelessWidget {
     required this.findController,
     required this.onChanged,
     this.wordWrap = false,
+    this.fontScale = 1,
     super.key,
   });
 
@@ -36,6 +37,7 @@ class CodeEditorView extends StatelessWidget {
   final CodeFindController findController;
   final ValueChanged<CodeLineEditingValue> onChanged;
   final bool wordWrap;
+  final double fontScale;
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +72,7 @@ class CodeEditorView extends StatelessWidget {
         style: CodeEditorStyle(
           fontFamily: 'MapleMonoCN',
           fontFamilyFallback: const ['monospace'],
-          fontSize: 13.5,
+          fontSize: 13.5 * fontScale,
           fontHeight: 1.62,
           textColor: AppColors.text,
           backgroundColor: AppColors.backgroundRaised,
@@ -99,13 +101,13 @@ class CodeEditorView extends StatelessWidget {
                       notifier: notifier,
                       textStyle: TextStyle(
                         color: AppColors.textDim,
-                        fontSize: 11.5,
+                        fontSize: 11.5 * fontScale,
                         fontFamily: 'MapleMonoCN',
                         height: 1.62,
                       ),
                       focusedTextStyle: TextStyle(
                         color: AppColors.signal,
-                        fontSize: 11.5,
+                        fontSize: 11.5 * fontScale,
                         fontFamily: 'MapleMonoCN',
                         height: 1.62,
                       ),

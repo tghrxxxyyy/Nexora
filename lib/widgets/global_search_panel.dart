@@ -91,6 +91,7 @@ class _GlobalSearchPanelState extends State<GlobalSearchPanel> {
                   child: TextField(
                     controller: _queryController,
                     focusNode: _queryFocus,
+                    textAlignVertical: TextAlignVertical.center,
                     onChanged: (_) => _scheduleSearch(),
                     onSubmitted: (_) => _runSearch(),
                     style: const TextStyle(fontSize: 11.5),
@@ -168,6 +169,7 @@ class _GlobalSearchPanelState extends State<GlobalSearchPanel> {
                                   height: 32,
                                   child: TextField(
                                     controller: _replaceController,
+                                    textAlignVertical: TextAlignVertical.center,
                                     style: const TextStyle(fontSize: 11.5),
                                     decoration: const InputDecoration(
                                       hintText: '替换为',
