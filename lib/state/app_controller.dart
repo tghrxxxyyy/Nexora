@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../app_theme.dart';
 import '../models/file_change_event.dart';
 import '../models/file_node.dart';
+import '../models/markdown_theme.dart';
 import '../models/search_models.dart';
 import '../models/terminal_layout.dart';
 import '../models/workspace_item.dart';
@@ -64,6 +65,7 @@ class AppController extends ChangeNotifier {
   bool _searching = false;
   bool _globalReplaceRequested = false;
   AppThemeMode _themeMode = AppThemeMode.light;
+  MarkdownTheme _markdownTheme = MarkdownTheme.nexora;
   double _fontScale = 1;
   String? _activeHeadingAnchor;
   SearchReport? _searchReport;
@@ -97,6 +99,7 @@ class AppController extends ChangeNotifier {
   bool get searching => _searching;
   bool get globalReplaceRequested => _globalReplaceRequested;
   AppThemeMode get themeMode => _themeMode;
+  MarkdownTheme get markdownTheme => _markdownTheme;
   double get fontScale => _fontScale;
   String? get activeHeadingAnchor => _activeHeadingAnchor;
   SearchReport? get searchReport => _searchReport;
@@ -131,6 +134,11 @@ class AppController extends ChangeNotifier {
             : 420,
       );
       _themeMode = AppThemeMode.light;
+      final markdownTheme = state['markdownTheme'];
+      _markdownTheme = MarkdownTheme.values.firstWhere(
+        (theme) => theme.name == markdownTheme,
+        orElse: () => MarkdownTheme.nexora,
+      );
       _fontScale = state['fontScale'] is num
           ? (state['fontScale'] as num).toDouble().clamp(0.85, 1.45).toDouble()
           : 1;
@@ -573,6 +581,13 @@ class AppController extends ChangeNotifier {
     final nextValue = value.clamp(0.85, 1.45).toDouble();
     if ((_fontScale - nextValue).abs() < 0.001) return;
     _fontScale = nextValue;
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  void setMarkdownTheme(MarkdownTheme value) {
+    if (_markdownTheme == value) return;
+    _markdownTheme = value;
     notifyListeners();
     _scheduleSessionSave();
   }
@@ -1101,6 +1116,7 @@ class AppController extends ChangeNotifier {
       'rightCollapsed': _rightCollapsed,
       'explorerView': _explorerView.name,
       'themeMode': _themeMode.name,
+      'markdownTheme': _markdownTheme.name,
       'fontScale': _fontScale,
       'terminalDock': terminalWorkspace.dock.name,
       'terminalBottomExtent': terminalWorkspace.bottomExtent,

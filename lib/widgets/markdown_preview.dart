@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 
 import '../app_theme.dart';
 import '../models/markdown_heading.dart';
+import '../models/markdown_theme.dart';
 import '../services/markdown_asset_resolver.dart';
 import '../state/preview_find_controller.dart';
 import 'preview_find_panel.dart';
@@ -22,6 +23,7 @@ class MarkdownPreview extends StatefulWidget {
     required this.previewAnchor,
     required this.previewJumpId,
     required this.findController,
+    required this.markdownTheme,
     this.onOpenLocalPath,
     this.onOpenAnchor,
     super.key,
@@ -34,6 +36,7 @@ class MarkdownPreview extends StatefulWidget {
   final String? previewAnchor;
   final int previewJumpId;
   final PreviewFindController findController;
+  final MarkdownTheme markdownTheme;
   final ValueChanged<String>? onOpenLocalPath;
   final ValueChanged<String>? onOpenAnchor;
 
@@ -99,8 +102,23 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final isNight = widget.markdownTheme.isDark;
+    final isDefault = widget.markdownTheme == MarkdownTheme.nexora;
+    final previewBackground = isDefault
+        ? AppColors.backgroundRaised
+        : widget.markdownTheme.previewSurface;
+    final previewSurface = isNight
+        ? const Color(0xFF20252B)
+        : widget.markdownTheme.previewSurface;
+    final previewText = isNight ? const Color(0xFFDCE4EA) : AppColors.text;
+    final previewMuted = isNight
+        ? const Color(0xFF9BAAB6)
+        : AppColors.textMuted;
+    final previewAccent = isDefault
+        ? AppColors.signal
+        : widget.markdownTheme.accent;
     final baseText = textTheme.bodyLarge!.copyWith(
-      color: AppColors.text,
+      color: previewText,
       fontSize: 15,
       height: 1.72,
     );
@@ -113,11 +131,7 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColors.backgroundRaised,
-            AppColors.surface.withValues(alpha: 0.76),
-            AppColors.backgroundRaised,
-          ],
+          colors: [previewBackground, previewSurface, previewBackground],
         ),
       ),
       child: Stack(
@@ -154,54 +168,56 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
                         p: baseText,
                         pPadding: const EdgeInsets.only(bottom: 8),
                         a: baseText.copyWith(
-                          color: AppColors.signal,
+                          color: previewAccent,
                           decoration: TextDecoration.underline,
-                          decorationColor: AppColors.signalDim,
+                          decorationColor: previewAccent.withValues(
+                            alpha: 0.58,
+                          ),
                         ),
                         h1: TextStyle(
-                          color: AppColors.text,
+                          color: previewText,
                           fontSize: 31,
                           fontWeight: FontWeight.w300,
                           height: 1.35,
                         ),
                         h1Padding: const EdgeInsets.only(top: 10, bottom: 14),
                         h2: TextStyle(
-                          color: AppColors.text,
+                          color: previewText,
                           fontSize: 23,
                           fontWeight: FontWeight.w600,
                           height: 1.4,
                         ),
                         h2Padding: const EdgeInsets.only(top: 22, bottom: 10),
                         h3: TextStyle(
-                          color: AppColors.acid,
+                          color: isDefault ? AppColors.acid : previewAccent,
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
                           height: 1.45,
                         ),
                         h3Padding: const EdgeInsets.only(top: 18, bottom: 8),
                         h4: TextStyle(
-                          color: AppColors.text,
+                          color: previewText,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
                         h5: TextStyle(
-                          color: AppColors.textMuted,
+                          color: previewMuted,
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
                         h6: TextStyle(
-                          color: AppColors.textMuted,
+                          color: previewMuted,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
                         em: baseText.copyWith(fontStyle: FontStyle.italic),
                         strong: baseText.copyWith(
-                          color: AppColors.text,
+                          color: previewText,
                           fontWeight: FontWeight.w700,
                         ),
                         code: TextStyle(
-                          color: AppColors.acid,
-                          backgroundColor: AppColors.surfaceRaised,
+                          color: isDefault ? AppColors.acid : previewAccent,
+                          backgroundColor: previewSurface,
                           fontFamily: 'MapleMonoCN',
                           fontFamilyFallback: const ['monospace'],
                           fontSize: 13,
@@ -209,13 +225,15 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
                         ),
                         codeblockPadding: const EdgeInsets.all(18),
                         codeblockDecoration: BoxDecoration(
-                          color: AppColors.background,
-                          border: Border.all(color: AppColors.line),
+                          color: previewSurface,
+                          border: Border.all(
+                            color: isNight
+                                ? const Color(0xFF3D4D58)
+                                : AppColors.line,
+                          ),
                           borderRadius: BorderRadius.circular(5),
                         ),
-                        blockquote: baseText.copyWith(
-                          color: AppColors.textMuted,
-                        ),
+                        blockquote: baseText.copyWith(color: previewMuted),
                         blockquotePadding: const EdgeInsets.fromLTRB(
                           16,
                           10,
@@ -223,25 +241,33 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
                           10,
                         ),
                         blockquoteDecoration: BoxDecoration(
-                          color: AppColors.surface,
+                          color: previewSurface,
                           border: Border(
-                            left: BorderSide(color: AppColors.signal, width: 3),
+                            left: BorderSide(color: previewAccent, width: 3),
                           ),
                         ),
-                        listBullet: baseText.copyWith(color: AppColors.signal),
+                        listBullet: baseText.copyWith(color: previewAccent),
                         tableHead: baseText.copyWith(
-                          color: AppColors.text,
+                          color: previewText,
                           fontWeight: FontWeight.w700,
                         ),
                         tableBody: baseText.copyWith(fontSize: 13),
-                        tableBorder: TableBorder.all(color: AppColors.line),
+                        tableBorder: TableBorder.all(
+                          color: isNight
+                              ? const Color(0xFF3D4D58)
+                              : AppColors.line,
+                        ),
                         tableCellsPadding: const EdgeInsets.symmetric(
                           horizontal: 14,
                           vertical: 9,
                         ),
                         horizontalRuleDecoration: BoxDecoration(
                           border: Border(
-                            top: BorderSide(color: AppColors.lineStrong),
+                            top: BorderSide(
+                              color: isNight
+                                  ? const Color(0xFF3D4D58)
+                                  : AppColors.lineStrong,
+                            ),
                           ),
                         ),
                         blockSpacing: 12,
