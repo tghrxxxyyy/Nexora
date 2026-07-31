@@ -9,8 +9,10 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../app_theme.dart';
 import '../models/markdown_heading.dart';
+import '../models/markdown_theme.dart';
 import '../services/markdown_asset_resolver.dart';
 import '../services/markdown_code_highlighter.dart';
+import '../services/markdown_preview_theme.dart';
 import '../state/preview_find_controller.dart';
 import 'preview_find_panel.dart';
 
@@ -24,6 +26,7 @@ class MarkdownDomPreview extends StatefulWidget {
     required this.previewJumpId,
     required this.findController,
     required this.themeMode,
+    required this.markdownTheme,
     required this.fontScale,
     this.onContentChanged,
     this.onOpenLocalPath,
@@ -39,6 +42,7 @@ class MarkdownDomPreview extends StatefulWidget {
   final int previewJumpId;
   final PreviewFindController findController;
   final AppThemeMode themeMode;
+  final MarkdownTheme markdownTheme;
   final double fontScale;
   final ValueChanged<String>? onContentChanged;
   final ValueChanged<String>? onOpenLocalPath;
@@ -135,7 +139,8 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     if (contentCameFromPreview) {
       _pendingPreviewContent = null;
       unawaited(_updateHeadingAnchors());
-    } else if (widget.themeMode != oldWidget.themeMode) {
+    } else if (widget.themeMode != oldWidget.themeMode ||
+        widget.markdownTheme != oldWidget.markdownTheme) {
       unawaited(_refreshThemedDocument());
     } else if (widget.fontScale != oldWidget.fontScale) {
       unawaited(
@@ -637,7 +642,7 @@ mark.nexora-find.nexora-find-active { background: rgba(${_rgb(AppColors.signal)}
 ::-webkit-scrollbar-thumb { background: rgba(${_rgb(AppColors.lineStrong)}, 0.78); border: 2px solid transparent; border-radius: 999px; background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 @media (max-width: 720px) { #nexora-document { padding: 24px 22px 72px; } h1 { font-size: 27px; } h2 { font-size: 21px; } }
-''';
+${MarkdownPreviewTheme.css(widget.markdownTheme)}''';
   }
 
   String _color(Color color) =>
