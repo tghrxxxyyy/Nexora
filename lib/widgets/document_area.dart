@@ -274,6 +274,7 @@ class DocumentArea extends StatelessWidget {
         previewAnchor: session.previewAnchor,
         previewJumpId: session.previewJumpId,
         findController: session.previewFindController,
+        markdownTheme: controller.markdownTheme,
         onOpenLocalPath: controller.openPath,
         onOpenAnchor: (anchor) {
           for (final heading in session.headings) {
@@ -294,6 +295,7 @@ class DocumentArea extends StatelessWidget {
       previewJumpId: session.previewJumpId,
       findController: session.previewFindController,
       themeMode: controller.themeMode,
+      markdownTheme: controller.markdownTheme,
       fontScale: controller.fontScale,
       onContentChanged: session.replaceContentFromPreview,
       onOpenLocalPath: controller.openPath,
