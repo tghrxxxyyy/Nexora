@@ -359,19 +359,48 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   }
 
   void _openLink(String href) {
-    if (href.startsWith('#')) {
-      widget.onOpenAnchor?.call(Uri.decodeComponent(href.substring(1)));
+    final decodedHref = Uri.decodeFull(href);
+    if (decodedHref.startsWith('#')) {
+      final anchor = _resolveAnchor(
+        Uri.decodeComponent(decodedHref.substring(1)),
+      );
+      if (anchor != null) widget.onOpenAnchor?.call(anchor);
       return;
     }
-    final uri = Uri.tryParse(href);
+    final uri = Uri.tryParse(decodedHref);
     if (uri != null && uri.hasScheme) {
       unawaited(_openExternal(uri.toString()));
       return;
     }
-    final localPath = p.normalize(
-      p.join(p.dirname(widget.path), href.split('#').first),
-    );
+    final fragmentIndex = decodedHref.indexOf('#');
+    final relativePath = fragmentIndex < 0
+        ? decodedHref
+        : decodedHref.substring(0, fragmentIndex);
+    if (relativePath.isEmpty) return;
+    final localPath = p.normalize(p.join(p.dirname(widget.path), relativePath));
     widget.onOpenLocalPath?.call(localPath);
+  }
+
+  String? _resolveAnchor(String requestedAnchor) {
+    for (final heading in widget.headings) {
+      if (heading.anchor == requestedAnchor) return heading.anchor;
+    }
+    final requestedTitle = _anchorTitle(requestedAnchor);
+    final matches = widget.headings
+        .where((heading) => _anchorTitle(heading.anchor) == requestedTitle)
+        .toList(growable: false);
+    return matches.length == 1 ? matches.single.anchor : null;
+  }
+
+  String _anchorTitle(String anchor) {
+    final normalized = anchor
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\\s_]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceFirst(RegExp(r'^-+'), '')
+        .replaceFirst(RegExp(r'-+$'), '');
+    final separator = normalized.indexOf('-');
+    return separator < 0 ? normalized : normalized.substring(separator + 1);
   }
 
   Future<void> _openExternal(String url) async {
@@ -837,11 +866,6 @@ window.xFileScrollTo = function(anchor) {
 document.addEventListener('click', function(event) {
   var link = event.target.closest('a');
   if (!link) return;
-  var root = document.getElementById('x-file-document');
-  if (root && root.isContentEditable && !event.metaKey && !event.ctrlKey) {
-    event.preventDefault();
-    return;
-  }
   var href = link.getAttribute('href');
   if (!href) return;
   event.preventDefault();
