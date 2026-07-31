@@ -334,7 +334,7 @@ class _FileRowState extends State<_FileRow> {
                             width: 6,
                             height: 6,
                             decoration: BoxDecoration(
-                              color: AppColors.acid,
+                              color: AppColors.amber,
                               shape: BoxShape.circle,
                             ),
                           ),
@@ -355,15 +355,7 @@ class _FileRowState extends State<_FileRow> {
                 child: Container(
                   width: 2,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        AppColors.signal.withValues(alpha: 0.26),
-                        AppColors.signal,
-                        AppColors.acid.withValues(alpha: 0.72),
-                      ],
-                    ),
+                    color: AppColors.signal.withValues(alpha: 0.84),
                     borderRadius: const BorderRadius.horizontal(
                       right: Radius.circular(3),
                     ),
@@ -383,7 +375,7 @@ class _FileRowState extends State<_FileRow> {
   static Color _headingColor(int level) {
     return switch (level) {
       1 => AppColors.signal,
-      2 => AppColors.acid,
+      2 => AppColors.signalDim,
       _ => AppColors.textDim,
     };
   }
@@ -403,14 +395,7 @@ class _FileTypeIcon extends StatelessWidget {
       height: 20,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            visual.color.withValues(alpha: 0.2),
-            visual.color.withValues(alpha: 0.08),
-          ],
-        ),
+        color: visual.color.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(4),
       ),
       child: visual.label == null
@@ -441,7 +426,7 @@ class _FileTypeIcon extends StatelessWidget {
       '.rtf' => _FileVisual(Icons.description_rounded, const Color(0xFF5AA8FF)),
       '.xls' ||
       '.xlsx' ||
-      '.csv' => _FileVisual(Icons.table_chart_rounded, const Color(0xFF65C781)),
+      '.csv' => _FileVisual(Icons.table_chart_rounded, const Color(0xFF5BA7E7)),
       '.ppt' ||
       '.pptx' ||
       '.key' => _FileVisual(Icons.slideshow_rounded, const Color(0xFFFF9D5C)),
@@ -469,7 +454,7 @@ class _FileTypeIcon extends StatelessWidget {
       '.sh' ||
       '.zsh' ||
       '.bash' ||
-      '.fish' => _FileVisual(Icons.terminal_rounded, const Color(0xFFA4D476)),
+      '.fish' => _FileVisual(Icons.terminal_rounded, const Color(0xFF8A9BB0)),
       '.go' ||
       '.rs' ||
       '.c' ||

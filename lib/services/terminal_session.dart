@@ -4,18 +4,24 @@ import 'dart:io';
 
 /// Manages a shell process lifecycle — start, I/O, resize, kill.
 class TerminalSession {
+  static const _maxOutputHistory = 512 * 1024;
+
   Process? _process;
   StreamSubscription? _stdoutSub;
   StreamSubscription? _stderrSub;
   bool _killed = false;
+  bool _started = false;
+  final List<int> _outputHistory = <int>[];
 
   /// Fires raw bytes from the shell's stdout/stderr.
   final StreamController<List<int>> _outputCtrl =
       StreamController<List<int>>.broadcast();
   Stream<List<int>> get output => _outputCtrl.stream;
+  List<int> get outputHistory => List<int>.unmodifiable(_outputHistory);
 
   /// Whether the underlying process is still alive.
   bool get isAlive => _process != null && !_killed;
+  bool get isTerminated => _started && _killed;
 
   /// The working directory the shell was started in.
   final String workingDirectory;
@@ -27,6 +33,8 @@ class TerminalSession {
     if (_process != null) return;
 
     try {
+      _started = true;
+      _killed = false;
       final args = _shellArgs(workingDirectory);
       _process = await Process.start(
         args.executable,
@@ -40,7 +48,7 @@ class TerminalSession {
 
       _stdoutSub = _process!.stdout.listen(
         (data) {
-          if (!_killed) _outputCtrl.add(data);
+          _emitOutput(data);
         },
         onError: (e) => _outputCtrl.addError(e),
         onDone: _onProcessDone,
@@ -49,7 +57,7 @@ class TerminalSession {
 
       _stderrSub = _process!.stderr.listen(
         (data) {
-          if (!_killed) _outputCtrl.add(data);
+          _emitOutput(data);
         },
         onError: (e) => _outputCtrl.addError(e),
         onDone: _onProcessDone,
@@ -60,6 +68,7 @@ class TerminalSession {
         _onProcessDone();
       });
     } catch (e) {
+      _killed = true;
       _outputCtrl.addError(e);
       rethrow;
     }
@@ -102,6 +111,15 @@ class TerminalSession {
     _outputCtrl.close();
   }
 
+  void _emitOutput(List<int> data) {
+    if (_killed || data.isEmpty) return;
+    _outputHistory.addAll(data);
+    if (_outputHistory.length > _maxOutputHistory) {
+      _outputHistory.removeRange(0, _outputHistory.length - _maxOutputHistory);
+    }
+    _outputCtrl.add(data);
+  }
+
   _ShellArgs _shellArgs(String cwd) {
     if (Platform.isMacOS) {
       // On macOS we use bash/zsh — get the login shell
@@ -119,16 +137,10 @@ class TerminalSession {
   Map<String, String> _buildEnv() {
     final env = Map<String, String>.from(Platform.environment);
     // Ensure TERM is set so programs know they're in a terminal
-    env['TERM'] = 'xterm-256color';
+    env['TERM'] = 'dumb';
     // Set a simpler prompt so it's not too noisy in the embedded terminal
     env['PS1'] = r'\w \$ ';
     return env;
-  }
-
-  void _clearBuffers() {
-    // Clear any buffered data
-    _stdoutSub?.cancel();
-    _stderrSub?.cancel();
   }
 }
 

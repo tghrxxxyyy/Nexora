@@ -40,13 +40,6 @@ class _AppShellState extends State<AppShell> {
 
   bool _handleKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
-    if (controller.showTerminal && !HardwareKeyboard.instance.isMetaPressed) {
-      final terminalInput = _terminalInputFor(event);
-      if (terminalInput != null) {
-        controller.sendTerminalInput(terminalInput);
-        return true;
-      }
-    }
     if (event.logicalKey == LogicalKeyboardKey.escape) {
       controller.closeCurrentFileFind();
       return true;
@@ -58,32 +51,6 @@ class _AppShellState extends State<AppShell> {
       return true;
     }
     return false;
-  }
-
-  String? _terminalInputFor(KeyDownEvent event) {
-    if (HardwareKeyboard.instance.isControlPressed) {
-      final label = event.logicalKey.keyLabel;
-      if (label.length == 1) {
-        final code = label.toUpperCase().codeUnitAt(0);
-        if (code >= 65 && code <= 90) return String.fromCharCode(code - 64);
-      }
-    }
-    if (event.logicalKey == LogicalKeyboardKey.enter ||
-        event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-      return '\r';
-    }
-    if (event.logicalKey == LogicalKeyboardKey.backspace) return '\x7f';
-    if (event.logicalKey == LogicalKeyboardKey.tab) return '\t';
-    if (event.logicalKey == LogicalKeyboardKey.escape) return '\x1b';
-    if (event.logicalKey == LogicalKeyboardKey.arrowUp) return '\x1b[A';
-    if (event.logicalKey == LogicalKeyboardKey.arrowDown) return '\x1b[B';
-    if (event.logicalKey == LogicalKeyboardKey.arrowRight) return '\x1b[C';
-    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) return '\x1b[D';
-    if (event.logicalKey == LogicalKeyboardKey.home) return '\x1b[H';
-    if (event.logicalKey == LogicalKeyboardKey.end) return '\x1b[F';
-    if (event.logicalKey == LogicalKeyboardKey.delete) return '\x1b[3~';
-    if (!HardwareKeyboard.instance.isAltPressed) return event.character;
-    return null;
   }
 
   @override
@@ -231,17 +198,7 @@ class _ActivityRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final workspace = controller.activeWorkspace;
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            AppColors.backgroundRaised,
-            AppColors.background,
-            AppColors.backgroundRaised.withValues(alpha: 0.84),
-          ],
-        ),
-      ),
+      color: AppColors.backgroundRaised,
       child: Column(
         children: [
           const SizedBox(height: 7),
@@ -303,17 +260,7 @@ class _WorkspaceHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 54,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            AppColors.background,
-            AppColors.backgroundRaised,
-            AppColors.surface.withValues(alpha: 0.82),
-          ],
-        ),
-      ),
+      color: AppColors.backgroundRaised,
       padding: EdgeInsets.only(left: Platform.isMacOS ? 78 : 12, right: 10),
       child: Row(
         children: [
@@ -444,21 +391,10 @@ class _WorkspaceTabState extends State<_WorkspaceTab> {
           padding: const EdgeInsets.fromLTRB(9, 0, 4, 0),
           decoration: BoxDecoration(
             color: widget.selected
-                ? null
+                ? AppColors.signal.withValues(alpha: 0.085)
                 : _hovered
-                ? AppColors.signal.withValues(alpha: 0.022)
+                ? AppColors.signal.withValues(alpha: 0.032)
                 : Colors.transparent,
-            gradient: widget.selected
-                ? LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      AppColors.signal.withValues(alpha: 0.14),
-                      AppColors.surfaceRaised.withValues(alpha: 0.92),
-                      AppColors.surface.withValues(alpha: 0.68),
-                    ],
-                  )
-                : null,
             borderRadius: BorderRadius.circular(5),
           ),
           child: Row(
@@ -493,7 +429,7 @@ class _WorkspaceTabState extends State<_WorkspaceTab> {
                   height: 6,
                   margin: const EdgeInsets.symmetric(horizontal: 8),
                   decoration: BoxDecoration(
-                    color: AppColors.acid,
+                    color: AppColors.amber,
                     shape: BoxShape.circle,
                   ),
                 )

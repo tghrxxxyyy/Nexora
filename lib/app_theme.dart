@@ -61,25 +61,25 @@ abstract final class AppColors {
   );
 
   static const _light = AppPalette(
-    background: Color(0xFFF3F7F8),
-    backgroundRaised: Color(0xFFF7FAFB),
-    surface: Color(0xFFEDF3F4),
-    surfaceRaised: Color(0xFFFBFCFC),
-    surfaceHover: Color(0xFFE7EFF1),
-    line: Color(0xFFD2DEE2),
-    lineStrong: Color(0xFFB5C9CF),
-    text: Color(0xFF172126),
-    textMuted: Color(0xFF52646B),
-    textDim: Color(0xFF788A91),
-    signal: Color(0xFF167C6E),
-    signalDim: Color(0xFF57968B),
-    acid: Color(0xFF6B8938),
-    coral: Color(0xFFD46550),
-    amber: Color(0xFFA97C2F),
-    selection: Color(0x35167C6E),
+    background: Color(0xFFFFFFFF),
+    backgroundRaised: Color(0xFFFFFFFF),
+    surface: Color(0xFFF6F8FB),
+    surfaceRaised: Color(0xFFFFFFFF),
+    surfaceHover: Color(0xFFF1F6FB),
+    line: Color(0xFFE9EFF5),
+    lineStrong: Color(0xFFD8E3EE),
+    text: Color(0xFF263440),
+    textMuted: Color(0xFF667584),
+    textDim: Color(0xFF9BA8B5),
+    signal: Color(0xFF3298E0),
+    signalDim: Color(0xFF79BDEB),
+    acid: Color(0xFF667E9C),
+    coral: Color(0xFFE97878),
+    amber: Color(0xFFF1B454),
+    selection: Color(0x263298E0),
   );
 
-  static AppThemeMode _mode = AppThemeMode.dark;
+  static AppThemeMode _mode = AppThemeMode.light;
 
   static void use(AppThemeMode mode) => _mode = mode;
 
@@ -177,11 +177,11 @@ ThemeData buildAppTheme(AppThemeMode mode) {
         letterSpacing: 0,
       ),
     ),
-    dividerColor: AppColors.line.withValues(alpha: 0.42),
+    dividerColor: AppColors.line.withValues(alpha: 0.28),
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
-    hoverColor: AppColors.signal.withValues(alpha: 0.04),
-    focusColor: AppColors.signal.withValues(alpha: 0.12),
+    hoverColor: AppColors.signal.withValues(alpha: 0.035),
+    focusColor: AppColors.signal.withValues(alpha: 0.10),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
         color: AppColors.surfaceRaised.withValues(alpha: 0.98),
@@ -197,7 +197,7 @@ ThemeData buildAppTheme(AppThemeMode mode) {
     inputDecorationTheme: InputDecorationTheme(
       isDense: true,
       filled: true,
-      fillColor: AppColors.backgroundRaised.withValues(alpha: 0.82),
+      fillColor: AppColors.surfaceRaised.withValues(alpha: 0.84),
       hintStyle: TextStyle(color: AppColors.textDim, fontSize: 12),
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       enabledBorder: InputBorder.none,

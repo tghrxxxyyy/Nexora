@@ -159,26 +159,11 @@ class _HeadingRowState extends State<_HeadingRow> {
           constraints: const BoxConstraints(minHeight: 32),
           padding: EdgeInsets.fromLTRB(8 + (heading.level - 1) * 9, 6, 10, 6),
           decoration: BoxDecoration(
-            gradient: widget.selected
-                ? LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      AppColors.signal.withValues(alpha: 0.16),
-                      AppColors.signal.withValues(alpha: 0.045),
-                      Colors.transparent,
-                    ],
-                  )
+            color: widget.selected
+                ? AppColors.signal.withValues(alpha: 0.085)
                 : _hovered
-                ? LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      AppColors.signal.withValues(alpha: 0.045),
-                      Colors.transparent,
-                    ],
-                  )
-                : null,
+                ? AppColors.signal.withValues(alpha: 0.028)
+                : Colors.transparent,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,

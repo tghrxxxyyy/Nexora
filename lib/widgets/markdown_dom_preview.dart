@@ -432,7 +432,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: ${_color(AppColors.text)};
-  background: linear-gradient(180deg, ${_color(AppColors.backgroundRaised)}, ${_color(AppColors.background)} 72%, ${_color(AppColors.surface)});
+  background: ${_color(AppColors.background)};
   font-family: "Maple Mono", "SF Mono", "PingFang SC", "Noto Sans CJK SC", monospace;
   font-size: 15px;
   line-height: 1.72;
@@ -441,11 +441,11 @@ body {
   text-rendering: optimizeLegibility;
 }
 #x-file-document { width: min(100%, 1120px); margin: 0 auto; padding: 36px 46px 96px; outline: none; }
-#x-file-document:focus { background: linear-gradient(180deg, rgba(${_rgb(AppColors.signal)}, 0.012), transparent 24%); }
+#x-file-document:focus { background: transparent; }
 h1, h2, h3, h4, h5, h6 { scroll-margin-top: 28px; color: ${_color(AppColors.text)}; }
 h1 { margin: 10px 0 14px; font-size: 31px; font-weight: 300; line-height: 1.35; }
 h2 { margin: 22px 0 10px; font-size: 23px; font-weight: 600; line-height: 1.4; }
-h3 { margin: 18px 0 8px; color: ${_color(AppColors.acid)}; font-size: 18px; font-weight: 600; line-height: 1.45; }
+h3 { margin: 18px 0 8px; color: ${_color(AppColors.text)}; font-size: 18px; font-weight: 600; line-height: 1.45; }
 h4 { margin: 14px 0 7px; font-size: 15px; font-weight: 700; }
 h5 { margin: 14px 0 7px; color: ${_color(AppColors.textMuted)}; font-size: 14px; font-weight: 700; }
 h6 { margin: 14px 0 7px; color: ${_color(AppColors.textMuted)}; font-size: 12px; font-weight: 700; }
@@ -454,8 +454,8 @@ a { color: ${_color(AppColors.signal)}; text-decoration-color: ${_color(AppColor
 strong { color: ${_color(AppColors.text)}; font-weight: 700; }
 em { font-style: italic; }
 code {
-  color: ${_color(AppColors.acid)};
-  background: linear-gradient(90deg, rgba(${_rgb(AppColors.signal)}, 0.075), rgba(${_rgb(AppColors.surfaceRaised)}, 0.42));
+  color: ${_color(AppColors.text)};
+  background: rgba(${_rgb(AppColors.signal)}, 0.07);
   border-radius: 3px;
   padding: 0.12em 0.34em;
   font-family: "Maple Mono", "SF Mono", monospace;
@@ -466,7 +466,7 @@ pre {
   overflow: auto;
   padding: 18px;
   color: ${_color(AppColors.text)};
-  background: linear-gradient(180deg, ${_color(AppColors.surface)}, ${_color(AppColors.background)});
+  background: ${_color(AppColors.surface)};
   border-radius: 5px;
 }
 pre code { padding: 0; color: inherit; background: transparent; }
@@ -474,10 +474,10 @@ pre code { padding: 0; color: inherit; background: transparent; }
   position: relative;
   margin: 16px 0;
   overflow: hidden;
-  background: linear-gradient(145deg, ${_color(AppColors.surfaceRaised)}, ${_color(AppColors.background)} 78%);
-  border: 1px solid rgba(${_rgb(AppColors.lineStrong)}, 0.82);
+  background: #f6faff;
+  border: 0;
   border-radius: 7px;
-  box-shadow: 0 10px 30px rgba(${_rgb(AppColors.background)}, 0.10);
+  box-shadow: none;
 }
 .x-file-code-block pre {
   margin: 0;
@@ -499,8 +499,8 @@ pre code { padding: 0; color: inherit; background: transparent; }
   min-height: 19px;
   padding: 1px 7px;
   color: ${_color(AppColors.signal)};
-  background: rgba(${_rgb(AppColors.signal)}, 0.11);
-  border: 1px solid rgba(${_rgb(AppColors.signal)}, 0.20);
+  background: rgba(${_rgb(AppColors.signal)}, 0.075);
+  border: 0;
   border-radius: 999px;
   font-family: "Maple Mono", "SF Mono", monospace;
   font-size: 10px;
@@ -513,7 +513,7 @@ pre code { padding: 0; color: inherit; background: transparent; }
 }
 .hljs-comment, .hljs-quote { color: ${_color(AppColors.textDim)}; font-style: italic; }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-meta .hljs-keyword { color: ${_color(AppColors.coral)}; }
-.hljs-string, .hljs-doctag, .hljs-regexp { color: ${_color(AppColors.acid)}; }
+.hljs-string, .hljs-doctag, .hljs-regexp { color: ${_color(AppColors.amber)}; }
 .hljs-number, .hljs-symbol, .hljs-bullet { color: ${_color(AppColors.amber)}; }
 .hljs-title, .hljs-function, .hljs-type, .hljs-class .hljs-title { color: ${_color(AppColors.signal)}; }
 .hljs-params, .hljs-variable, .hljs-template-variable, .hljs-attr { color: ${_color(AppColors.textMuted)}; }
@@ -523,20 +523,20 @@ blockquote {
   margin: 14px 0;
   padding: 10px 16px;
   color: ${_color(AppColors.textMuted)};
-  background: linear-gradient(90deg, rgba(${_rgb(AppColors.signal)}, 0.07), ${_color(AppColors.backgroundRaised)} 42%, transparent);
+  background: #f7f8ff;
 }
 ul, ol { padding-left: 28px; }
 li::marker { color: ${_color(AppColors.signal)}; }
-hr { height: 1px; border: 0; background: linear-gradient(90deg, transparent, rgba(${_rgb(AppColors.signal)}, 0.42), transparent); margin: 24px 0; }
-table { width: 100%; margin: 14px 0; border-collapse: separate; border-spacing: 0 3px; overflow: hidden; }
-thead tr { background: linear-gradient(90deg, rgba(${_rgb(AppColors.signal)}, 0.1), ${_color(AppColors.surface)} 72%, transparent); }
-tbody tr { background: linear-gradient(90deg, ${_color(AppColors.surface)} 0%, ${_color(AppColors.backgroundRaised)} 64%, transparent); }
-th, td { padding: 9px 14px; vertical-align: top; text-align: left; }
+hr { height: 1px; border: 0; background: rgba(${_rgb(AppColors.signal)}, 0.30); margin: 24px 0; }
+table { width: 100%; margin: 14px 0; border-collapse: separate; border-spacing: 0 5px; overflow: hidden; }
+thead tr { background: #f3f8fd; }
+tbody tr { background: #fbfcfe; }
+th, td { padding: 10px 14px; vertical-align: top; text-align: left; }
 th { color: ${_color(AppColors.text)}; font-weight: 700; }
 td { font-size: 13px; }
 img { display: block; max-width: 100%; height: auto; margin: 16px 0; }
 mark.x-file-find { color: inherit; background: rgba(${_rgb(AppColors.amber)}, 0.30); border-radius: 3px; padding: 0 1px; }
-mark.x-file-find.x-file-find-active { background: linear-gradient(90deg, rgba(${_rgb(AppColors.signal)}, 0.56), rgba(${_rgb(AppColors.acid)}, 0.34)); }
+mark.x-file-find.x-file-find-active { background: rgba(${_rgb(AppColors.signal)}, 0.36); }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: rgba(${_rgb(AppColors.lineStrong)}, 0.78); border: 2px solid transparent; border-radius: 999px; background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }

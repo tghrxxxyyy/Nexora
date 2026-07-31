@@ -35,9 +35,9 @@ class _AppIconButtonState extends State<AppIconButton> {
     final activeColor = widget.accent ?? AppColors.signal;
     final enabled = widget.onPressed != null;
     final background = widget.selected
-        ? activeColor.withValues(alpha: 0.1)
+        ? activeColor.withValues(alpha: 0.09)
         : _hovered
-        ? activeColor.withValues(alpha: 0.03)
+        ? activeColor.withValues(alpha: 0.035)
         : Colors.transparent;
 
     return Tooltip(
@@ -116,10 +116,10 @@ class _TechButtonState extends State<TechButton> {
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null;
     final baseColor = widget.primary
-        ? AppColors.signal.withValues(alpha: _hovered ? 0.2 : 0.12)
+        ? AppColors.signal.withValues(alpha: _hovered ? 0.16 : 0.10)
         : _hovered
-        ? AppColors.signal.withValues(alpha: 0.055)
-        : AppColors.surface;
+        ? AppColors.signal.withValues(alpha: 0.045)
+        : Colors.transparent;
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -129,7 +129,7 @@ class _TechButtonState extends State<TechButton> {
         duration: AppMotion.quick,
         curve: AppMotion.curve,
         decoration: BoxDecoration(
-          color: enabled ? baseColor : AppColors.surface,
+          color: enabled ? baseColor : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
         ),
         child: InkWell(
@@ -193,9 +193,9 @@ class PanelLabel extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    AppColors.signal.withValues(alpha: 0.18),
+                    AppColors.signal.withValues(alpha: 0.13),
                     AppColors.signal,
-                    AppColors.acid.withValues(alpha: 0.58),
+                    AppColors.signalDim.withValues(alpha: 0.58),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(2),
@@ -268,11 +268,7 @@ class PanelSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final top = Color.alphaBlend(
-      AppColors.surfaceRaised.withValues(alpha: 0.36),
-      AppColors.background,
-    );
-    final middle = Color.alphaBlend(
-      AppColors.surface.withValues(alpha: 0.26),
+      AppColors.surfaceRaised.withValues(alpha: 0.54),
       AppColors.background,
     );
     return DecoratedBox(
@@ -280,7 +276,8 @@ class PanelSurface extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [top, middle, AppColors.background],
+          stops: const [0, 0.46, 1],
+          colors: [top, AppColors.background, AppColors.background],
         ),
       ),
       child: child,

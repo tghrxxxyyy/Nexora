@@ -15,17 +15,7 @@ class StatusBar extends StatelessWidget {
     final session = controller.activeSession;
     return Container(
       height: 27,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            AppColors.background,
-            AppColors.backgroundRaised,
-            AppColors.surface.withValues(alpha: 0.64),
-          ],
-        ),
-      ),
+      color: AppColors.backgroundRaised,
       padding: const EdgeInsets.symmetric(horizontal: 9),
       child: Row(
         children: [
@@ -72,7 +62,7 @@ class StatusBar extends StatelessWidget {
                 child: Text(
                   'EDITED',
                   style: TextStyle(
-                    color: AppColors.acid,
+                    color: AppColors.amber,
                     fontSize: 9,
                     fontWeight: FontWeight.w700,
                     fontFamily: 'MapleMonoCN',

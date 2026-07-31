@@ -546,17 +546,13 @@ class AppController extends ChangeNotifier {
 
   void toggleTerminal() {
     _showTerminal = !_showTerminal;
-    if (_showTerminal && _terminalSession == null) {
+    if (_showTerminal &&
+        (_terminalSession == null || _terminalSession!.isTerminated)) {
       _terminalSession = TerminalSession(
         workingDirectory: terminalWorkingDirectory,
       );
     }
     notifyListeners();
-  }
-
-  void sendTerminalInput(String input) {
-    if (!_showTerminal || input.isEmpty) return;
-    _terminalSession?.writeString(input);
   }
 
   void toggleRightSidebar() {

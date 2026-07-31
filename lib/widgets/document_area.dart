@@ -22,17 +22,7 @@ class DocumentToolbar extends StatelessWidget {
     final session = controller.activeSession;
     final documentPaths = controller.activeDocumentPaths;
     return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            AppColors.backgroundRaised,
-            AppColors.surface.withValues(alpha: 0.66),
-            AppColors.backgroundRaised,
-          ],
-        ),
-      ),
+      decoration: BoxDecoration(color: AppColors.backgroundRaised),
       child: Row(
         children: [
           Expanded(
@@ -89,7 +79,7 @@ class DocumentToolbar extends StatelessWidget {
               icon: Icons.save_outlined,
               tooltip: '保存',
               selected: session.document.isDirty,
-              accent: AppColors.acid,
+              accent: AppColors.signal,
               size: 30,
               iconSize: 16,
               onPressed: session.document.isDirty
@@ -315,14 +305,7 @@ class _ViewModeControl extends StatelessWidget {
       height: 30,
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            AppColors.background.withValues(alpha: 0.74),
-            AppColors.surface.withValues(alpha: 0.78),
-          ],
-        ),
+        color: AppColors.surface.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -442,21 +425,11 @@ class _DocumentTabState extends State<_DocumentTab> {
           padding: const EdgeInsets.only(left: 9, right: 4),
           decoration: BoxDecoration(
             color: widget.selected
-                ? null
+                ? AppColors.signal.withValues(alpha: 0.075)
                 : _hovered
-                ? AppColors.signal.withValues(alpha: 0.022)
+                ? AppColors.signal.withValues(alpha: 0.03)
                 : Colors.transparent,
-            gradient: widget.selected
-                ? LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      AppColors.signal.withValues(alpha: 0.075),
-                      AppColors.surfaceRaised.withValues(alpha: 0.34),
-                      Colors.transparent,
-                    ],
-                  )
-                : null,
+            borderRadius: BorderRadius.circular(4),
           ),
           child: Row(
             children: [
@@ -465,7 +438,7 @@ class _DocumentTabState extends State<_DocumentTab> {
                   width: 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: AppColors.acid,
+                    color: AppColors.amber,
                     shape: BoxShape.circle,
                   ),
                 )
