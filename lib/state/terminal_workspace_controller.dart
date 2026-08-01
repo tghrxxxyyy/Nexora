@@ -297,8 +297,17 @@ class TerminalWorkspaceController extends ChangeNotifier {
       workingDirectory: workingDirectory,
       displayIndex: _nextDisplayIndex++,
     );
+    session.addListener(() => _onSessionChanged(session));
     _sessions[session.id] = session;
     return session;
+  }
+
+  /// Auto-closes the pane when the underlying shell exits (e.g. `exit` typed),
+  /// matching standard terminal behavior.
+  void _onSessionChanged(TerminalSession session) {
+    if (session.status == TerminalSessionStatus.exited) {
+      unawaited(closeTerminal(session.id));
+    }
   }
 
   /// Replaces a matching layout leaf while preserving unaffected branches.

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path/path.dart' as p;
 
 import '../app_theme.dart';
 import '../models/file_node.dart';
 import '../models/markdown_heading.dart';
+import '../services/file_icon_resolver.dart';
 import '../state/app_controller.dart';
+import 'file_context_menu.dart';
 import 'ui_primitives.dart';
 
 enum _TreeRowType { directory, file, heading }
@@ -20,13 +23,85 @@ class FileExplorerPanel extends StatefulWidget {
 
 class _FileExplorerPanelState extends State<FileExplorerPanel> {
   final TextEditingController _filterController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   String _filter = '';
   int? _hoveredRowIndex;
+  int _observedRevealRequestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant FileExplorerPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleControllerChanged);
+      widget.controller.addListener(_handleControllerChanged);
+      _observedRevealRequestId = 0;
+    }
+  }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_handleControllerChanged);
     _filterController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    final controller = widget.controller;
+    if (controller.revealRequestId != _observedRevealRequestId) {
+      _observedRevealRequestId = controller.revealRequestId;
+      WidgetsBinding.instance.addPostFrameCallback(_scrollToActiveFile);
+    }
+  }
+
+  void _scrollToActiveFile(_) {
+    if (!_scrollController.hasClients) return;
+    final controller = widget.controller;
+    final workspace = controller.activeWorkspace;
+    final selectedPath = workspace?.selectedFilePath;
+    if (selectedPath == null || workspace?.isDirectory != true) return;
+
+    final rows = <_TreeRow>[];
+    _flatten(
+      controller,
+      controller.childrenFor(workspace!.path),
+      0,
+      rows,
+    );
+    final filtered = _filter.isEmpty
+        ? rows
+        : _filterRows(rows, _filter.toLowerCase());
+    var targetIndex = -1;
+    for (var i = 0; i < filtered.length; i++) {
+      if (filtered[i].node.path == selectedPath && !filtered[i].isHeading) {
+        targetIndex = i;
+        break;
+      }
+    }
+    if (targetIndex < 0) return;
+
+    const itemExtent = 28.0;
+    final viewport = _scrollController.position.viewportDimension;
+    final currentMin = _scrollController.offset;
+    final currentMax = currentMin + viewport;
+    final target = targetIndex * itemExtent;
+    if (target >= currentMin && target + itemExtent <= currentMax) return;
+
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final desiredOffset = (target - viewport / 2 + itemExtent / 2)
+        .clamp(0.0, maxScroll)
+        .toDouble();
+    _scrollController.animateTo(
+      desiredOffset,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -81,7 +156,7 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
               ),
             ),
           ),
-          const SignalDivider(),
+          SignalDivider(),
           if (controller.busy)
             LinearProgressIndicator(
               minHeight: 1,
@@ -92,6 +167,7 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
             child: visibleRows.isEmpty
                 ? const _EmptyTree()
                 : ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     itemCount: visibleRows.length,
                     itemExtent: 32,
@@ -114,6 +190,10 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                         },
                         onTap: () => _onRowTap(visibleRows[index]),
                         onArrowTap: () => _onArrowTap(visibleRows[index]),
+                        onSecondaryTap: (position) => _showRowContextMenu(
+                          visibleRows[index],
+                          position,
+                        ),
                       );
                     },
                   ),
@@ -145,12 +225,21 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
     }
   }
 
+  void _showRowContextMenu(_TreeRow row, Offset position) {
+    if (row.isHeading) return;
+    showFileContextMenu(
+      context: context,
+      position: position,
+      controller: widget.controller,
+      path: row.node.path,
+      isDirectory: row.isDirectory,
+    );
+  }
+
   static bool _isMarkdown(String name) {
     final lower = name.toLowerCase();
     return lower.endsWith('.md') || lower.endsWith('.markdown');
   }
-
-  static String _normalize(String path) => p.normalize(p.absolute(path));
 
   void _flatten(
     AppController controller,
@@ -252,6 +341,7 @@ class _FileRow extends StatefulWidget {
     required this.onHoverChanged,
     required this.onTap,
     this.onArrowTap,
+    this.onSecondaryTap,
   });
 
   final _TreeRow row;
@@ -260,6 +350,7 @@ class _FileRow extends StatefulWidget {
   final ValueChanged<bool> onHoverChanged;
   final VoidCallback onTap;
   final VoidCallback? onArrowTap;
+  final void Function(Offset globalPosition)? onSecondaryTap;
 
   @override
   State<_FileRow> createState() => _FileRowState();
@@ -290,6 +381,10 @@ class _FileRowState extends State<_FileRow> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: row.isDirectory ? widget.onTap : null,
+          onSecondaryTapDown: row.isHeading
+              ? null
+              : (details) =>
+                  widget.onSecondaryTap?.call(details.globalPosition),
           child: Stack(
             children: [
               Row(
@@ -421,7 +516,7 @@ class _FileName extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color: emphasized
-            ? Colors.white
+            ? AppColors.text
             : selected
             ? AppColors.text
             : AppColors.textMuted,
@@ -432,8 +527,8 @@ class _FileName extends StatelessWidget {
     if (!emphasized) return text;
     return ShaderMask(
       blendMode: BlendMode.srcIn,
-      shaderCallback: (bounds) => const LinearGradient(
-        colors: [Color(0xFF1A3145), Color(0xFF287AB8)],
+      shaderCallback: (bounds) => LinearGradient(
+        colors: [AppColors.signal, AppColors.signalDim],
       ).createShader(bounds),
       child: text,
     );
@@ -448,17 +543,39 @@ class _FileTypeIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visual = _visualFor(node, expanded);
+    final visual = resolveFileVisual(
+      FileIconContext(
+        path: node.path,
+        isDirectory: node.isDirectory,
+        expanded: expanded,
+      ),
+    );
+    if (visual.svgAssetKey != null) {
+      return SizedBox(
+        width: 18,
+        height: 18,
+        child: Center(
+          child: SvgPicture.asset(
+            visual.svgAssetKey!,
+            width: 14,
+            height: 14,
+            colorFilter: visual.tintSvg && visual.color != null
+                ? ColorFilter.mode(visual.color!, BlendMode.srcIn)
+                : null,
+          ),
+        ),
+      );
+    }
     return Container(
       width: visual.label == null ? 20 : 24,
       height: 20,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: visual.color.withValues(alpha: 0.11),
+        color: visual.color?.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(4),
       ),
       child: visual.label == null
-          ? Icon(visual.icon!, size: 13, color: visual.color)
+          ? Icon(visual.icon, size: 13, color: visual.color)
           : Text(
               visual.label!,
               style: TextStyle(
@@ -470,91 +587,6 @@ class _FileTypeIcon extends StatelessWidget {
             ),
     );
   }
-
-  _FileVisual _visualFor(FileNode node, bool expanded) {
-    if (node.isDirectory) {
-      return _FileVisual(
-        expanded ? Icons.folder_open_rounded : Icons.folder_rounded,
-        AppColors.amber,
-      );
-    }
-    return switch (p.extension(node.path).toLowerCase()) {
-      '.md' || '.markdown' => _FileVisual.badge('MD', AppColors.signal),
-      '.doc' ||
-      '.docx' ||
-      '.rtf' => _FileVisual(Icons.description_rounded, const Color(0xFF5AA8FF)),
-      '.xls' ||
-      '.xlsx' ||
-      '.csv' => _FileVisual(Icons.table_chart_rounded, const Color(0xFF5BA7E7)),
-      '.ppt' ||
-      '.pptx' ||
-      '.key' => _FileVisual(Icons.slideshow_rounded, const Color(0xFFFF9D5C)),
-      '.pdf' => _FileVisual(Icons.picture_as_pdf_rounded, AppColors.coral),
-      '.html' ||
-      '.htm' ||
-      '.xml' => _FileVisual(Icons.html_rounded, AppColors.coral),
-      '.css' ||
-      '.scss' ||
-      '.less' => _FileVisual(Icons.style_rounded, const Color(0xFF8CB8FF)),
-      '.java' ||
-      '.kt' ||
-      '.kts' => _FileVisual(Icons.coffee_rounded, const Color(0xFFFFA86A)),
-      '.py' || '.pyi' => _FileVisual.badge('PY', const Color(0xFF7CB7FF)),
-      '.js' || '.jsx' => _FileVisual.badge('JS', const Color(0xFFF3CE4B)),
-      '.ts' || '.tsx' => _FileVisual.badge('TS', const Color(0xFF4C9CFF)),
-      '.dart' => _FileVisual.badge('DART', const Color(0xFF55C4E7)),
-      '.sql' => _FileVisual.badge('SQL', const Color(0xFFFFA86A)),
-      '.json' ||
-      '.yaml' ||
-      '.yml' ||
-      '.toml' ||
-      '.ini' ||
-      '.properties' => _FileVisual(Icons.tune_rounded, AppColors.acid),
-      '.sh' ||
-      '.zsh' ||
-      '.bash' ||
-      '.fish' => _FileVisual(Icons.terminal_rounded, const Color(0xFF8A9BB0)),
-      '.go' ||
-      '.rs' ||
-      '.c' ||
-      '.h' ||
-      '.cpp' ||
-      '.cc' ||
-      '.cs' ||
-      '.swift' => _FileVisual(Icons.code_rounded, const Color(0xFFA685FF)),
-      '.png' ||
-      '.jpg' ||
-      '.jpeg' ||
-      '.gif' ||
-      '.webp' ||
-      '.svg' ||
-      '.ico' => _FileVisual(Icons.image_outlined, const Color(0xFFE78AC9)),
-      '.mp4' ||
-      '.mov' ||
-      '.avi' ||
-      '.mkv' => _FileVisual(Icons.movie_outlined, const Color(0xFFCC8CFF)),
-      '.mp3' ||
-      '.wav' ||
-      '.m4a' ||
-      '.flac' => _FileVisual(Icons.audiotrack_rounded, const Color(0xFFDF82A9)),
-      '.zip' ||
-      '.rar' ||
-      '.7z' ||
-      '.tar' ||
-      '.gz' => _FileVisual(Icons.inventory_2_outlined, AppColors.amber),
-      _ => _FileVisual(Icons.insert_drive_file_outlined, AppColors.textDim),
-    };
-  }
-}
-
-class _FileVisual {
-  const _FileVisual(this.icon, this.color) : label = null;
-
-  const _FileVisual.badge(this.label, this.color) : icon = null;
-
-  final IconData? icon;
-  final String? label;
-  final Color color;
 }
 
 class _EmptyTree extends StatelessWidget {

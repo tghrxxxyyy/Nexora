@@ -1,25 +1,32 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 
 import '../app_theme.dart';
 import '../models/file_change_event.dart';
 import '../models/file_node.dart';
-import '../models/markdown_theme.dart';
+import '../models/git_commit.dart';
+import '../models/git_diff.dart';
 import '../models/search_models.dart';
 import '../models/terminal_layout.dart';
 import '../models/workspace_item.dart';
+import '../services/file_icon_resolver.dart';
 import '../services/file_picker_service.dart';
 import '../services/app_session_store.dart';
 import '../services/file_system_service.dart';
 import '../services/file_watch_service.dart';
+import '../services/git_service.dart';
 import '../services/global_search_service.dart';
 import 'editor_session.dart';
+import 'icon_theme_registry.dart';
+import 'theme_registry.dart';
 import 'terminal_workspace_controller.dart';
 
-enum ExplorerView { files, search }
+enum ExplorerView { files, search, git }
 
 enum AppMessageTone { neutral, success, warning, error }
 
@@ -38,6 +45,21 @@ class AppController extends ChangeNotifier {
         showMessage('文件监听异常', tone: AppMessageTone.error);
       },
     );
+    setActiveFileIconResolver(currentIconTheme.resolver);
+    _setupWindowChannel();
+  }
+
+  void _setupWindowChannel() {
+    if (!Platform.isMacOS) return;
+    const channel = MethodChannel('com.xuyu.nexora/window');
+    channel.setMethodCallHandler((call) async {
+      if (call.method == 'fullscreenChanged') {
+        final next = call.arguments == true;
+        if (_isFullscreen == next) return;
+        _isFullscreen = next;
+        notifyListeners();
+      }
+    });
   }
 
   final FilePickerService _pickerService;
@@ -47,6 +69,8 @@ class AppController extends ChangeNotifier {
   final AppSessionStore _sessionStore;
   final TerminalWorkspaceController terminalWorkspace =
       TerminalWorkspaceController();
+  final ThemeRegistry _themeRegistry = ThemeRegistry();
+  final IconThemeRegistry _iconThemeRegistry = IconThemeRegistry();
   late final StreamSubscription<FileChangeEvent> _watchSubscription;
 
   final List<WorkspaceItem> _workspaces = [];
@@ -60,12 +84,15 @@ class AppController extends ChangeNotifier {
   int _activeWorkspaceIndex = -1;
   bool _leftCollapsed = false;
   bool _rightCollapsed = false;
+  double _leftSidebarWidth = 252;
+  double _leftSidebarAnchorWidth = 252;
+  double _rightSidebarWidth = 226;
   ExplorerView _explorerView = ExplorerView.files;
   bool _busy = false;
   bool _searching = false;
   bool _globalReplaceRequested = false;
-  AppThemeMode _themeMode = AppThemeMode.light;
-  MarkdownTheme _markdownTheme = MarkdownTheme.nexora;
+  String _currentThemeId = 'light';
+  String _currentIconThemeId = IconThemeRegistry.defaultId;
   double _fontScale = 1;
   String? _activeHeadingAnchor;
   SearchReport? _searchReport;
@@ -77,6 +104,17 @@ class AppController extends ChangeNotifier {
   Future<void> _sessionWriteQueue = Future<void>.value();
   bool _restoringSession = false;
   bool _sessionRestored = false;
+  int _revealRequestId = 0;
+  bool _isFullscreen = false;
+
+  final GitService _gitService = const GitService();
+  GitRepoStatus? _gitStatus;
+  List<GitCommit> _gitCommits = const [];
+  String? _gitSelectedSha;
+  List<GitFileChange> _gitFileChanges = const [];
+  GitDiffTarget? _gitActiveDiff;
+  bool _gitLoading = false;
+  String? _gitError;
 
   List<WorkspaceItem> get workspaces => List.unmodifiable(_workspaces);
   List<WorkspaceItem> get recentItems => List.unmodifiable(_recentItems);
@@ -87,6 +125,8 @@ class AppController extends ChangeNotifier {
   int get activeWorkspaceIndex => _activeWorkspaceIndex;
   bool get leftCollapsed => _leftCollapsed;
   bool get rightCollapsed => _rightCollapsed;
+  double get leftSidebarWidth => _leftSidebarWidth;
+  double get rightSidebarWidth => _rightSidebarWidth;
   bool get showTerminal => terminalWorkspace.visible;
   String get terminalWorkingDirectory {
     final workspace = activeWorkspace;
@@ -98,8 +138,43 @@ class AppController extends ChangeNotifier {
   bool get busy => _busy;
   bool get searching => _searching;
   bool get globalReplaceRequested => _globalReplaceRequested;
-  AppThemeMode get themeMode => _themeMode;
-  MarkdownTheme get markdownTheme => _markdownTheme;
+
+  GitRepoStatus? get gitStatus => _gitStatus;
+  List<GitCommit> get gitCommits => _gitCommits;
+  String? get gitSelectedSha => _gitSelectedSha;
+  List<GitFileChange> get gitFileChanges => _gitFileChanges;
+  GitDiffTarget? get gitActiveDiff => _gitActiveDiff;
+  bool get gitLoading => _gitLoading;
+  String? get gitError => _gitError;
+
+  bool get isFullscreen => _isFullscreen;
+
+  AppThemeDefinition get currentTheme {
+    return _themeRegistry.find(_currentThemeId) ??
+        AppColors.builtinThemes.first;
+  }
+
+  String get currentThemeId => _currentThemeId;
+
+  List<AppThemeDefinition> get availableThemes => _themeRegistry.themes;
+
+  FileIconTheme get currentIconTheme {
+    return _iconThemeRegistry.find(_currentIconThemeId) ??
+        _iconThemeRegistry.themes.first;
+  }
+
+  String get currentIconThemeId => _currentIconThemeId;
+
+  List<FileIconTheme> get availableIconThemes => _iconThemeRegistry.themes;
+
+  /// Backwards-compatible view for widgets that still branch on light/dark.
+  /// Derived from the current palette's background luminance so any imported
+  /// theme resolves to the right brightness without callers being aware of ids.
+  AppThemeMode get themeMode {
+    return currentTheme.palette.background.computeLuminance() < 0.5
+        ? AppThemeMode.dark
+        : AppThemeMode.light;
+  }
   double get fontScale => _fontScale;
   String? get activeHeadingAnchor => _activeHeadingAnchor;
   SearchReport? get searchReport => _searchReport;
@@ -109,19 +184,39 @@ class AppController extends ChangeNotifier {
   bool get hasDirtyDocuments =>
       _sessions.values.any((session) => session.document.isDirty);
 
+  /// Monotonic counter bumped whenever the sidebar should scroll to reveal the
+  /// active file. Watched by [_FileExplorerPanelState] to trigger a post-frame
+  /// scroll after the rebuilt tree is committed.
+  int get revealRequestId => _revealRequestId;
+
   Future<void> restoreSession() async {
     if (_sessionRestored || _restoringSession) return;
     _restoringSession = true;
     try {
+      await _themeRegistry.loadImported();
       final state = await _sessionStore.read();
       if (state == null) return;
       final workspaces = state['workspaces'];
       if (workspaces is! List) return;
       _leftCollapsed = state['leftCollapsed'] == true;
       _rightCollapsed = state['rightCollapsed'] == true;
-      _explorerView = state['explorerView'] == ExplorerView.search.name
-          ? ExplorerView.search
-          : ExplorerView.files;
+      _leftSidebarWidth = state['leftSidebarWidth'] is num
+          ? (state['leftSidebarWidth'] as num)
+              .toDouble()
+              .clamp(180.0, 480.0)
+              .toDouble()
+          : 252;
+      _leftSidebarAnchorWidth = _leftSidebarWidth;
+      _rightSidebarWidth = state['rightSidebarWidth'] is num
+          ? (state['rightSidebarWidth'] as num)
+              .toDouble()
+              .clamp(160.0, 420.0)
+              .toDouble()
+          : 226;
+      _explorerView = ExplorerView.values.firstWhere(
+        (v) => v.name == state['explorerView'],
+        orElse: () => ExplorerView.files,
+      );
       terminalWorkspace.restorePreferences(
         dock: state['terminalDock'] == TerminalDock.right.name
             ? TerminalDock.right
@@ -133,16 +228,24 @@ class AppController extends ChangeNotifier {
             ? (state['terminalRightExtent'] as num).toDouble()
             : 420,
       );
-      _themeMode = AppThemeMode.light;
-      final markdownTheme = state['markdownTheme'];
-      _markdownTheme = MarkdownTheme.values.firstWhere(
-        (theme) => theme.name == markdownTheme,
-        orElse: () => MarkdownTheme.nexora,
-      );
+      // Theme: prefer the new themeId; fall back to legacy themeMode string; else default.
+      final themeIdValue = state['themeId'];
+      final legacyMode = state['themeMode'];
+      _currentThemeId = (themeIdValue is String && themeIdValue.isNotEmpty)
+          ? themeIdValue
+          : legacyMode is String && legacyMode.isNotEmpty
+          ? legacyMode
+          : 'light';
+      final iconThemeValue = state['iconThemeId'];
+      _currentIconThemeId =
+          (iconThemeValue is String && iconThemeValue.isNotEmpty)
+          ? iconThemeValue
+          : IconThemeRegistry.defaultId;
+      setActiveFileIconResolver(currentIconTheme.resolver);
       _fontScale = state['fontScale'] is num
           ? (state['fontScale'] as num).toDouble().clamp(0.85, 1.45).toDouble()
           : 1;
-      AppColors.use(_themeMode);
+      AppColors.apply(currentTheme);
       _restoreRecentItems(state['recentItems']);
 
       for (final value in workspaces) {
@@ -199,7 +302,8 @@ class AppController extends ChangeNotifier {
     final workspace = activeWorkspace;
     return !_leftCollapsed &&
         (workspace?.isDirectory == true ||
-            _explorerView == ExplorerView.search);
+            _explorerView == ExplorerView.search ||
+            _explorerView == ExplorerView.git);
   }
 
   bool get showOutline {
@@ -299,9 +403,15 @@ class AppController extends ChangeNotifier {
     if (index < 0 || index >= _workspaces.length) return;
     _activeWorkspaceIndex = index;
     _activeHeadingAnchor = null;
+    _gitSelectedSha = null;
+    _gitActiveDiff = null;
+    _gitFileChanges = const [];
     _syncSidebarDefaults();
     notifyListeners();
     _scheduleSessionSave();
+    if (_explorerView == ExplorerView.git && !_leftCollapsed) {
+      refreshGitState();
+    }
   }
 
   Future<void> closeWorkspace(int index, {bool force = false}) async {
@@ -418,6 +528,101 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  /// Copies the absolute path of [path] to the system clipboard.
+  Future<void> copyAbsolutePath(String path) async {
+    await Clipboard.setData(ClipboardData(text: path));
+    showMessage('已复制绝对路径', tone: AppMessageTone.success);
+  }
+
+  /// Copies the path of [path] relative to the owning workspace root. Falls
+  /// back to the absolute path when the file lives outside any directory
+  /// workspace (e.g. a loose file opened via "open file").
+  Future<void> copyRelativePath(String path) async {
+    final normalizedPath = _normalize(path);
+    final root = _containingWorkspaceRoot(normalizedPath);
+    final text = root != null
+        ? p.relative(normalizedPath, from: root)
+        : normalizedPath;
+    await Clipboard.setData(ClipboardData(text: text));
+    showMessage('已复制相对路径', tone: AppMessageTone.success);
+  }
+
+  /// Writes the file itself to the system clipboard (Finder/Explorer paste
+  /// creates a copy). Implemented per-platform: macOS uses AppleScript against
+  /// Finder, Windows PowerShell with `Set-Clipboard -LiteralPath`, Linux is a
+  /// no-op for now (would need xclip with `target x-special/gnome-files`).
+  Future<void> copyFileToClipboard(String path) async {
+    final normalizedPath = _normalize(path);
+    final entity = FileSystemEntity.typeSync(normalizedPath);
+    if (entity != FileSystemEntityType.file &&
+        entity != FileSystemEntityType.directory) {
+      showMessage('文件不存在', tone: AppMessageTone.error);
+      return;
+    }
+    try {
+      if (Platform.isMacOS) {
+        final script =
+            'tell application "Finder" to set the clipboard to '
+            '(file (POSIX file ${_appleScriptString(normalizedPath)}) as alias)';
+        final result = await Process.run('osascript', ['-e', script]);
+        if (result.exitCode != 0) {
+          showMessage('复制文件失败', tone: AppMessageTone.error);
+          return;
+        }
+      } else if (Platform.isWindows) {
+        final ps = "'${normalizedPath.replaceAll("'", "''")}'";
+        await Process.run(
+          'powershell',
+          ['-NoProfile', '-Command', 'Set-Clipboard -LiteralPath $ps'],
+        );
+      } else {
+        showMessage('当前平台不支持复制文件', tone: AppMessageTone.warning);
+        return;
+      }
+      showMessage('已复制文件 ${p.basename(normalizedPath)}',
+          tone: AppMessageTone.success);
+    } on ProcessException {
+      showMessage('复制文件失败', tone: AppMessageTone.error);
+    }
+  }
+
+  /// Reveals [path] in the native file manager (Finder/Explorer). On macOS
+  /// uses `open -R` which selects the file inside its parent window.
+  Future<void> revealInFileManager(String path) async {
+    final normalizedPath = _normalize(path);
+    final exists = FileSystemEntity.typeSync(normalizedPath) !=
+        FileSystemEntityType.notFound;
+    if (!exists) {
+      showMessage('文件不存在', tone: AppMessageTone.error);
+      return;
+    }
+    try {
+      if (Platform.isMacOS) {
+        await Process.run('open', ['-R', normalizedPath]);
+      } else if (Platform.isWindows) {
+        await Process.run('explorer.exe', ['/select,', normalizedPath]);
+      } else {
+        // No standard "reveal" flag on Linux; just open the parent directory.
+        final parent = p.dirname(normalizedPath);
+        await Process.run('xdg-open', [parent]);
+      }
+    } on ProcessException {
+      showMessage('无法打开文件管理器', tone: AppMessageTone.error);
+    }
+  }
+
+  /// Returns the absolute path of the directory workspace that contains
+  /// [absolutePath], or null when the path is not under any directory
+  /// workspace. Used to compute relative paths.
+  String? _containingWorkspaceRoot(String absolutePath) {
+    for (final ws in _workspaces) {
+      if (ws.isDirectory && p.isWithin(ws.path, absolutePath)) {
+        return ws.path;
+      }
+    }
+    return null;
+  }
+
   Future<void> _openDocumentFor(WorkspaceItem workspace, String path) async {
     final normalizedPath = _normalize(path);
     var session = _sessions[normalizedPath];
@@ -437,6 +642,7 @@ class AppController extends ChangeNotifier {
     }
     _activeWorkspaceIndex = workspaceIndex;
     notifyListeners();
+    await revealPathInWorkspace(normalizedPath);
   }
 
   void selectDocument(String path) {
@@ -459,8 +665,39 @@ class AppController extends ChangeNotifier {
       ),
     );
     _activeHeadingAnchor = null;
+    _gitActiveDiff = null;
     notifyListeners();
     _scheduleSessionSave();
+    unawaited(revealPathInWorkspace(normalizedPath));
+  }
+
+  /// Expands every ancestor directory of [filePath] inside the owning
+  /// workspace and bumps [revealRequestId] so the sidebar can scroll the row
+  /// into view. No-op when the path is outside any directory workspace.
+  Future<void> revealPathInWorkspace(String filePath) async {
+    final normalizedPath = _normalize(filePath);
+    WorkspaceItem? owner;
+    for (final ws in _workspaces) {
+      if (ws.isDirectory && p.isWithin(ws.path, normalizedPath)) {
+        owner = ws;
+        break;
+      }
+    }
+    if (owner == null) return;
+
+    String? current = p.dirname(normalizedPath);
+    while (current != null &&
+        current.isNotEmpty &&
+        p.isWithin(owner.path, current)) {
+      if (!_expandedDirectories.contains(current)) {
+        await _loadDirectory(current, expand: true);
+      }
+      final parent = p.dirname(current);
+      if (parent == current) break;
+      current = parent;
+    }
+    _revealRequestId++;
+    notifyListeners();
   }
 
   void closeDocument(String path, {bool force = false}) {
@@ -568,26 +805,101 @@ class AppController extends ChangeNotifier {
     _scheduleSessionSave();
   }
 
-  void toggleTheme() {
-    _themeMode = _themeMode == AppThemeMode.dark
-        ? AppThemeMode.light
-        : AppThemeMode.dark;
-    AppColors.use(_themeMode);
+  /// Applies a registered theme by id. Silently falls back to 'light' when the
+  /// id is unknown (e.g. a deleted imported theme was the last selection).
+  void setTheme(String id) {
+    final theme = _themeRegistry.find(id);
+    final resolved = theme ?? AppColors.builtinThemes.first;
+    if (_currentThemeId == resolved.id && theme != null) return;
+    _currentThemeId = resolved.id;
+    AppColors.apply(resolved);
     notifyListeners();
     _scheduleSessionSave();
+    if (theme == null) {
+      showMessage(
+        '主题 $id 不存在,已回落到 ${resolved.name}',
+        tone: AppMessageTone.warning,
+      );
+    }
+  }
+
+  /// Switches the file icon theme by id. Falls back to the default when the
+  /// id is unknown (e.g. a future id removed in a newer build).
+  void setIconTheme(String id) {
+    final theme = _iconThemeRegistry.find(id);
+    final resolved = theme ?? _iconThemeRegistry.themes.first;
+    if (_currentIconThemeId == resolved.id && theme != null) return;
+    _currentIconThemeId = resolved.id;
+    setActiveFileIconResolver(resolved.resolver);
+    notifyListeners();
+    _scheduleSessionSave();
+    if (theme == null) {
+      showMessage(
+        '图标主题 $id 不存在,已回落到 ${resolved.name}',
+        tone: AppMessageTone.warning,
+      );
+    }
+  }
+
+  /// Imports a theme from a JSON file path, persists it, and switches to it.
+  Future<void> importTheme(String jsonPath) async {
+    try {
+      final source = await File(jsonPath).readAsString();
+      final fallbackId = p.basenameWithoutExtension(jsonPath);
+      final theme = const ThemeLoader().parse(
+        source,
+        fallbackId: fallbackId,
+        fallbackName: fallbackId,
+      );
+      final persisted = await _themeRegistry.addImported(theme);
+      _currentThemeId = persisted.id;
+      AppColors.apply(persisted);
+      notifyListeners();
+      _scheduleSessionSave();
+      showMessage(
+        '已导入主题 ${persisted.name}',
+        tone: AppMessageTone.success,
+      );
+    } on ThemeFormatException catch (error) {
+      showMessage(error.message, tone: AppMessageTone.error);
+    } on FileSystemException catch (error) {
+      showMessage('读取文件失败: ${error.message}', tone: AppMessageTone.error);
+    } catch (error) {
+      showMessage('导入主题失败: $error', tone: AppMessageTone.error);
+    }
+  }
+
+  /// Deletes an imported theme by id. Built-in themes cannot be deleted.
+  /// If the deleted theme was active, falls back to 'light'.
+  Future<void> deleteTheme(String id) async {
+    final theme = _themeRegistry.find(id);
+    if (theme == null || theme.builtIn) return;
+    final removed = await _themeRegistry.remove(id);
+    if (!removed) return;
+    if (_currentThemeId == id) {
+      _currentThemeId = 'light';
+      AppColors.apply(currentTheme);
+    }
+    notifyListeners();
+    _scheduleSessionSave();
+    showMessage('已删除主题 ${theme.name}', tone: AppMessageTone.neutral);
+  }
+
+  /// Opens a file picker filtered to .json and imports the chosen file.
+  Future<void> pickThemeFile() async {
+    final items = await _pickerService.pickFiles(
+      acceptedTypeGroups: [
+        XTypeGroup(label: '主题文件', extensions: ['json']),
+      ],
+    );
+    if (items.isEmpty) return;
+    await importTheme(items.first.path);
   }
 
   void setFontScale(double value) {
     final nextValue = value.clamp(0.85, 1.45).toDouble();
     if ((_fontScale - nextValue).abs() < 0.001) return;
     _fontScale = nextValue;
-    notifyListeners();
-    _scheduleSessionSave();
-  }
-
-  void setMarkdownTheme(MarkdownTheme value) {
-    if (_markdownTheme == value) return;
-    _markdownTheme = value;
     notifyListeners();
     _scheduleSessionSave();
   }
@@ -603,6 +915,46 @@ class AppController extends ChangeNotifier {
     _scheduleSessionSave();
   }
 
+  /// Minimum sidebar width while dragging. Below this the pane is unreadable,
+  /// so we hard-stop the visual shrink.
+  static const double _leftSidebarMinDragWidth = 60;
+
+  /// Drag-release threshold below which the sidebar fully collapses, mirroring
+  /// [toggleLeftSidebar]. Values at or above this are kept as the new width.
+  static const double _leftSidebarCollapseThreshold = 140;
+
+  void setLeftSidebarWidth(double value) {
+    final next = value
+        .clamp(_leftSidebarMinDragWidth, 480.0)
+        .toDouble();
+    if ((_leftSidebarWidth - next).abs() < 0.001) return;
+    _leftSidebarWidth = next;
+    if (next >= _leftSidebarCollapseThreshold) {
+      _leftSidebarAnchorWidth = next;
+    }
+    notifyListeners();
+  }
+
+  /// Called when the user releases the sidebar drag handle. If the live width
+  /// has been dragged below the collapse threshold, the sidebar folds away just
+  /// like pressing Cmd+B, and the prior width is restored on next expand.
+  void finalizeLeftSidebarWidth() {
+    if (_leftSidebarWidth < _leftSidebarCollapseThreshold) {
+      _leftSidebarWidth = _leftSidebarAnchorWidth;
+      _leftCollapsed = true;
+    }
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  void setRightSidebarWidth(double value) {
+    final next = value.clamp(160.0, 420.0).toDouble();
+    if ((_rightSidebarWidth - next).abs() < 0.001) return;
+    _rightSidebarWidth = next;
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
   void showFiles() {
     _explorerView = ExplorerView.files;
     if (activeWorkspace?.isDirectory == true) _leftCollapsed = false;
@@ -610,9 +962,35 @@ class AppController extends ChangeNotifier {
     _scheduleSessionSave();
   }
 
+  /// Toggles the files explorer: collapses if it is the active, visible view;
+  /// otherwise switches to files and expands the sidebar.
+  void toggleFiles() {
+    if (_explorerView == ExplorerView.files && !_leftCollapsed) {
+      _leftCollapsed = true;
+    } else {
+      _explorerView = ExplorerView.files;
+      if (activeWorkspace?.isDirectory == true) _leftCollapsed = false;
+    }
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
   void showGlobalSearch() {
     _explorerView = ExplorerView.search;
     _leftCollapsed = false;
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Toggles global search: collapses if it is the active, visible view;
+  /// otherwise switches to search and expands the sidebar.
+  void toggleGlobalSearch() {
+    if (_explorerView == ExplorerView.search && !_leftCollapsed) {
+      _leftCollapsed = true;
+    } else {
+      _explorerView = ExplorerView.search;
+      _leftCollapsed = false;
+    }
     notifyListeners();
     _scheduleSessionSave();
   }
@@ -629,6 +1007,144 @@ class AppController extends ChangeNotifier {
     if (!_globalReplaceRequested) return;
     _globalReplaceRequested = false;
     notifyListeners();
+  }
+
+  void showGit() {
+    _explorerView = ExplorerView.git;
+    _leftCollapsed = false;
+    notifyListeners();
+    _scheduleSessionSave();
+    refreshGitState();
+  }
+
+  /// Toggles the git inspector: collapses if it is the active, visible view;
+  /// otherwise switches to git and expands the sidebar.
+  void toggleGit() {
+    if (_explorerView == ExplorerView.git && !_leftCollapsed) {
+      _leftCollapsed = true;
+    } else {
+      _explorerView = ExplorerView.git;
+      _leftCollapsed = false;
+    }
+    notifyListeners();
+    _scheduleSessionSave();
+    if (!_leftCollapsed) refreshGitState();
+  }
+
+  /// Reloads branch status, commit log, and the file-level changes for the
+  /// currently selected target (working tree by default). Safe to call when
+  /// the active workspace is not a git repository — the panel will show an
+  /// empty state.
+  Future<void> refreshGitState() async {
+    final workspace = activeWorkspace;
+    if (workspace == null) {
+      _gitStatus = null;
+      _gitCommits = const [];
+      _gitFileChanges = const [];
+      _gitActiveDiff = null;
+      _gitError = null;
+      _gitLoading = false;
+      notifyListeners();
+      return;
+    }
+    final probePath = workspace.isDirectory
+        ? workspace.path
+        : p.dirname(workspace.path);
+    _gitLoading = true;
+    _gitError = null;
+    notifyListeners();
+    try {
+      final root = await _gitService.findRepositoryRoot(probePath);
+      if (root == null) {
+        _gitStatus = null;
+        _gitCommits = const [];
+        _gitFileChanges = const [];
+        _gitActiveDiff = null;
+        _gitLoading = false;
+        notifyListeners();
+        return;
+      }
+      final status = await _gitService.getStatus(root);
+      final commits = await _gitService.getRecentCommits(root);
+      _gitStatus = status;
+      _gitCommits = commits;
+      if (_gitSelectedSha != null &&
+          !commits.any((c) => c.sha == _gitSelectedSha)) {
+        _gitSelectedSha = null;
+      }
+      await _loadGitFileChanges(root);
+      // Active diff view is stale after a refresh — close it so the editor
+      // doesn't keep showing a snapshot that may no longer match the repo.
+      _gitActiveDiff = null;
+      _gitLoading = false;
+      notifyListeners();
+    } catch (error) {
+      _gitLoading = false;
+      _gitError = error.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Selects which commit's changes to inspect: `null` for the working tree
+  /// (uncommitted changes), or a commit sha from [gitCommits]. Clears any
+  /// active diff view since the file list underneath is about to change.
+  Future<void> selectGitDiffTarget(String? sha) async {
+    if (_gitSelectedSha == sha) return;
+    _gitSelectedSha = sha;
+    _gitActiveDiff = null;
+    notifyListeners();
+    final root = _gitStatus?.rootPath;
+    if (root == null) return;
+    try {
+      await _loadGitFileChanges(root);
+    } catch (error) {
+      _gitError = error.toString();
+    }
+    notifyListeners();
+  }
+
+  /// Opens a split diff view for [path] in the editor area. The file must
+  /// already be present in [gitFileChanges] for the current target.
+  void selectGitFile(String path) {
+    GitFileChange? change;
+    for (final c in _gitFileChanges) {
+      if (c.path == path) {
+        change = c;
+        break;
+      }
+    }
+    if (change == null) return;
+    _gitActiveDiff = GitDiffTarget(
+      sha: _gitSelectedSha,
+      path: change.path,
+      displayName: change.displayName,
+      status: change.status,
+      oldPath: change.oldPath,
+    );
+    notifyListeners();
+  }
+
+  /// Closes the diff view in the editor area and returns to the document.
+  void closeGitDiff() {
+    if (_gitActiveDiff == null) return;
+    _gitActiveDiff = null;
+    notifyListeners();
+  }
+
+  /// Returns the parsed file change for the currently open diff, or `null`
+  /// if no diff is open or the underlying data has been evicted.
+  GitFileChange? lookupActiveGitFileChange() {
+    final target = _gitActiveDiff;
+    if (target == null) return null;
+    for (final change in _gitFileChanges) {
+      if (change.path == target.path) return change;
+    }
+    return null;
+  }
+
+  Future<void> _loadGitFileChanges(String root) async {
+    final sha = _gitSelectedSha;
+    _gitFileChanges = await _gitService.getFileChanges(root, sha: sha);
   }
 
   Future<void> saveActiveDocument({bool overwrite = false}) async {
@@ -1114,9 +1630,11 @@ class AppController extends ChangeNotifier {
           .toList(growable: false),
       'leftCollapsed': _leftCollapsed,
       'rightCollapsed': _rightCollapsed,
+      'leftSidebarWidth': _leftSidebarWidth,
+      'rightSidebarWidth': _rightSidebarWidth,
       'explorerView': _explorerView.name,
-      'themeMode': _themeMode.name,
-      'markdownTheme': _markdownTheme.name,
+      'themeId': _currentThemeId,
+      'iconThemeId': _currentIconThemeId,
       'fontScale': _fontScale,
       'terminalDock': terminalWorkspace.dock.name,
       'terminalBottomExtent': terminalWorkspace.bottomExtent,

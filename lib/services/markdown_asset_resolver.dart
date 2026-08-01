@@ -12,7 +12,15 @@ class MarkdownAssetResolver {
     required String workspaceRoot,
   }) {
     if (source.isEmpty) return null;
-    final decodedSource = Uri.decodeFull(source);
+    // Uri.decodeFull throws ArgumentError on stray `%` (e.g. paths containing
+    // `50%off.png` or HTML attributes like width="80%" leaking into the src).
+    // Fall back to the raw source so the rest of the pipeline still runs.
+    String decodedSource;
+    try {
+      decodedSource = Uri.decodeFull(source);
+    } catch (_) {
+      decodedSource = source;
+    }
     final uri = Uri.tryParse(decodedSource);
     if (uri?.scheme == 'file') return uri!.toFilePath();
     if (uri?.hasScheme ?? false) return null;

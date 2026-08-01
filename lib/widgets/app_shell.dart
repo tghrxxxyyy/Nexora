@@ -11,6 +11,7 @@ import '../models/workspace_item.dart';
 import '../state/app_controller.dart';
 import 'document_area.dart';
 import 'file_sidebar.dart';
+import 'git_panel.dart';
 import 'global_search_panel.dart';
 import 'outline_sidebar.dart';
 import 'status_bar.dart';
@@ -100,13 +101,13 @@ class _AppShellState extends State<AppShell> {
                   Column(
                     children: [
                       _WorkspaceHeader(controller: controller),
-                      const SignalDivider(),
+                      SignalDivider(),
                       if (controller.activeWorkspace != null) ...[
                         SizedBox(
                           height: 43,
                           child: DocumentToolbar(controller: controller),
                         ),
-                        const SignalDivider(),
+                        SignalDivider(),
                       ],
                       Expanded(child: _buildWorkspaceWithTerminal()),
                       StatusBar(controller: controller),
@@ -236,17 +237,44 @@ class _TerminalDockResizeHandle extends StatelessWidget {
         onVerticalDragUpdate: rightDock
             ? null
             : (details) => onDelta(details.delta.dy),
-        child: SizedBox(
-          width: rightDock ? 8 : double.infinity,
-          height: rightDock ? double.infinity : 8,
-          child: Center(
-            child: Container(
-              width: rightDock ? 1 : double.infinity,
-              height: rightDock ? double.infinity : 1,
-              color: AppColors.lineStrong,
+        child: ColoredBox(
+          color: AppColors.background,
+          child: SizedBox(
+            width: rightDock ? 8 : double.infinity,
+            height: rightDock ? double.infinity : 8,
+            child: Center(
+              child: Container(
+                width: rightDock ? 1 : double.infinity,
+                height: rightDock ? double.infinity : 1,
+                color: AppColors.lineStrong,
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Drag handle between a sidebar and the document workspace.
+class _SidebarResizeHandle extends StatelessWidget {
+  const _SidebarResizeHandle({required this.onDelta, this.onDragEnd});
+
+  /// Callback receiving the raw horizontal pointer delta.
+  final ValueChanged<double> onDelta;
+
+  /// Callback fired when the user releases the drag, used to commit or collapse.
+  final VoidCallback? onDragEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeLeftRight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (details) => onDelta(details.delta.dx),
+        onHorizontalDragEnd: onDragEnd == null ? null : (_) => onDragEnd!(),
+        child: SignalDivider(vertical: true),
       ),
     );
   }
@@ -267,6 +295,8 @@ class _WorkspaceBody extends StatelessWidget {
     final showLeftContent = hasWorkspace && controller.showExplorerContent;
     final showRightContent = hasWorkspace && controller.showOutline;
 
+    final leftWidth = controller.leftSidebarWidth;
+    final rightWidth = controller.rightSidebarWidth;
     return Row(
       children: [
         AnimatedContainer(
@@ -288,42 +318,49 @@ class _WorkspaceBody extends StatelessWidget {
             ),
           ),
         ),
-        if (hasWorkspace) const SignalDivider(vertical: true),
+        if (hasWorkspace) SignalDivider(vertical: true),
         if (hasWorkspace)
-          AnimatedContainer(
-            duration: AppMotion.standard,
-            curve: AppMotion.curve,
-            width: showLeftContent ? 252 : 0,
-            decoration: const BoxDecoration(color: Colors.transparent),
-            clipBehavior: Clip.hardEdge,
-            child: OverflowBox(
-              alignment: Alignment.topLeft,
-              minWidth: 252,
-              maxWidth: 252,
-              child: SizedBox(
-                width: 252,
-                child: controller.explorerView == ExplorerView.files
-                    ? FileExplorerPanel(controller: controller)
-                    : GlobalSearchPanel(controller: controller),
+          ClipRect(
+            child: SizedBox(
+              width: showLeftContent ? leftWidth : 0,
+              child: OverflowBox(
+                alignment: Alignment.topLeft,
+                minWidth: leftWidth,
+                maxWidth: leftWidth,
+                child: SizedBox(
+                  width: leftWidth,
+                  child: switch (controller.explorerView) {
+                    ExplorerView.files => FileExplorerPanel(controller: controller),
+                    ExplorerView.search => GlobalSearchPanel(controller: controller),
+                    ExplorerView.git => GitPanel(controller: controller),
+                  },
+                ),
               ),
             ),
           ),
-        if (showLeftContent) const SignalDivider(vertical: true),
+        if (showLeftContent)
+          _SidebarResizeHandle(
+            onDelta: (delta) =>
+                controller.setLeftSidebarWidth(leftWidth + delta),
+            onDragEnd: controller.finalizeLeftSidebarWidth,
+          ),
         Expanded(child: DocumentArea(controller: controller)),
-        if (showRightContent) const SignalDivider(vertical: true),
-        AnimatedContainer(
-          duration: AppMotion.standard,
-          curve: AppMotion.curve,
-          width: showRightContent ? 226 : 0,
-          decoration: const BoxDecoration(color: Colors.transparent),
-          clipBehavior: Clip.hardEdge,
-          child: OverflowBox(
-            alignment: Alignment.topRight,
-            minWidth: 226,
-            maxWidth: 226,
-            child: SizedBox(
-              width: 226,
-              child: OutlinePanel(controller: controller),
+        if (showRightContent)
+          _SidebarResizeHandle(
+            onDelta: (delta) =>
+                controller.setRightSidebarWidth(rightWidth - delta),
+          ),
+        ClipRect(
+          child: SizedBox(
+            width: showRightContent ? rightWidth : 0,
+            child: OverflowBox(
+              alignment: Alignment.topRight,
+              minWidth: rightWidth,
+              maxWidth: rightWidth,
+              child: SizedBox(
+                width: rightWidth,
+                child: OutlinePanel(controller: controller),
+              ),
             ),
           ),
         ),
@@ -355,7 +392,7 @@ class _ActivityRail extends StatelessWidget {
             size: 34,
             iconSize: 18,
             onPressed: workspace?.isDirectory == true
-                ? controller.showFiles
+                ? controller.toggleFiles
                 : controller.toggleLeftSidebar,
           ),
           const SizedBox(height: 4),
@@ -367,7 +404,19 @@ class _ActivityRail extends StatelessWidget {
                 controller.showExplorerContent,
             size: 34,
             iconSize: 19,
-            onPressed: controller.showGlobalSearch,
+            onPressed: controller.toggleGlobalSearch,
+          ),
+          const SizedBox(height: 4),
+          AppIconButton(
+            icon: Icons.commit_rounded,
+            tooltip: 'Git',
+            selected:
+                controller.explorerView == ExplorerView.git &&
+                controller.showExplorerContent,
+            size: 34,
+            iconSize: 18,
+            accent: AppColors.acid,
+            onPressed: controller.toggleGit,
           ),
           const SizedBox(height: 4),
           AppIconButton(
@@ -410,12 +459,43 @@ class _WorkspaceHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fullscreen = controller.isFullscreen;
+    // In fullscreen the traffic lights slide off-screen and the title bar
+    // belongs to the app, so we show the brand from the very left edge.
+    // Windowed, the 70 px slot is reserved for the system traffic lights
+    // and the workspace tabs take over from there.
+    final leftPad = Platform.isMacOS
+        ? (fullscreen ? 12.0 : 70.0)
+        : 12.0;
     return Container(
       height: 54,
       color: AppColors.backgroundRaised,
-      padding: EdgeInsets.only(left: Platform.isMacOS ? 78 : 12, right: 10),
+      padding: EdgeInsets.only(left: leftPad, right: 10),
       child: Row(
         children: [
+          if (fullscreen)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Row(
+                children: [
+                  Image.asset(
+                    'assets/icon/nexora-icon-1024.png',
+                    width: 20,
+                    height: 20,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    'Nexora',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: controller.workspaces.isEmpty
                 ? const SizedBox.shrink()

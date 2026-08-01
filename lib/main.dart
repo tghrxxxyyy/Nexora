@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import 'app_theme.dart';
 import 'models/workspace_item.dart';
+import 'services/mermaid_bundle.dart';
 import 'state/app_controller.dart';
 import 'widgets/app_shell.dart';
 import 'widgets/settings_dialog.dart';
@@ -51,6 +52,23 @@ class _NexoraAppState extends State<NexoraApp> {
   Future<void> _restoreSession() async {
     await _controller.restoreSession();
     await _syncStatusMenu();
+    _pushWindowAppearance();
+    unawaited(MermaidBundle.script());
+  }
+
+  /// Pushes the theme color to the native NSWindow so the chrome stops
+  /// flashing white during the brief window between app launch and the
+  /// first markdown preview mounting.
+  void _pushWindowAppearance() {
+    if (!Platform.isMacOS) return;
+    final argb = AppColors.background.toARGB32();
+    const MethodChannel('com.xuyu.nexora/webview_appearance')
+        .invokeMethod<bool>('setBaseColor', <String, dynamic>{
+      'r': ((argb >> 16) & 0xff) / 255.0,
+      'g': ((argb >> 8) & 0xff) / 255.0,
+      'b': (argb & 0xff) / 255.0,
+      'a': ((argb >> 24) & 0xff) / 255.0,
+    }).catchError((_) => false);
   }
 
   Future<void> _handleStatusMenuCall(MethodCall call) async {
@@ -151,7 +169,7 @@ class _NexoraAppState extends State<NexoraApp> {
         navigatorKey: _navigatorKey,
         title: 'Nexora',
         debugShowCheckedModeBanner: false,
-        theme: buildAppTheme(_controller.themeMode),
+        theme: buildAppTheme(_controller.currentTheme),
         builder: (context, child) {
           final mediaQuery = MediaQuery.of(context);
           return MediaQuery(

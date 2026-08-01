@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import WebKit
 
 @main
 class AppDelegate: FlutterAppDelegate {
@@ -8,6 +9,9 @@ class AppDelegate: FlutterAppDelegate {
   private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
   private let statusMenu = NSMenu()
   private var methodChannel: FlutterMethodChannel?
+  private var appearanceChannel: FlutterMethodChannel?
+  private var windowChannel: FlutterMethodChannel?
+  private var pendingAppearanceColor: NSColor?
   private var recentDocuments: [(name: String, path: String)] = []
 
   override init() {
@@ -26,6 +30,18 @@ class AppDelegate: FlutterAppDelegate {
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return false
+  }
+
+  /// Force-terminate immediately on Quit. The Flutter engine's normal shutdown
+  /// path waits on native side-channel cleanup (notably `flutter_pty`'s child
+  /// kill on macOS) that doesn't always complete, which manifests to the user
+  /// as the dock icon staying forever after "Quit" until force-quit.
+  /// `.terminateNow` skips that wait. Session state is already persisted on
+  /// every mutation, so the only thing lost is in-memory edits the user
+  /// hasn't saved — and `_onExitRequested` on the Dart side already handles
+  /// the dirty-documents dialog when Quit is initiated from the menu bar.
+  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    return .terminateNow
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -120,6 +136,134 @@ class AppDelegate: FlutterAppDelegate {
       }
     }
     channel.invokeMethod("requestRecentDocuments", arguments: nil)
+
+    let appearance = FlutterMethodChannel(
+      name: "com.xuyu.nexora/webview_appearance",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    appearanceChannel = appearance
+    appearance.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      switch call.method {
+      case "setBaseColor":
+        let applied = self.setBaseColor(call.arguments)
+        result(applied)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    let window = FlutterMethodChannel(
+      name: "com.xuyu.nexora/window",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    windowChannel = window
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidEnterFullScreen(_:)),
+      name: NSWindow.didEnterFullScreenNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidExitFullScreen(_:)),
+      name: NSWindow.didExitFullScreenNotification,
+      object: nil
+    )
+    // Push the initial state once the window exists; configureMethodChannel
+    // runs before MainFlutterWindow is guaranteed to be in NSApp.windows.
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self,
+            let main = NSApp.windows.first(where: { $0 is MainFlutterWindow }) else {
+        return
+      }
+      self.windowChannel?.invokeMethod(
+        "fullscreenChanged",
+        arguments: main.styleMask.contains(.fullScreen)
+      )
+    }
+  }
+
+  @objc private func windowDidEnterFullScreen(_ note: Notification) {
+    windowChannel?.invokeMethod("fullscreenChanged", arguments: true)
+  }
+
+  @objc private func windowDidExitFullScreen(_ note: Notification) {
+    windowChannel?.invokeMethod("fullscreenChanged", arguments: false)
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
+  }
+
+  /// Pushes the current theme's base color to the native side so the window
+  /// background and every WKWebView's `underPageBackgroundColor` match it.
+  /// This kills the 1px white seam that shows on the right edge of the
+  /// markdown preview in dark theme (where the WKWebView default white
+  /// bleeds through any gap between the HTML body and the WebView frame).
+  @discardableResult
+  private func setBaseColor(_ arguments: Any?) -> Bool {
+    guard let values = arguments as? [String: Any],
+          let r = values["r"] as? Double,
+          let g = values["g"] as? Double,
+          let b = values["b"] as? Double else {
+      return false
+    }
+    let a = values["a"] as? Double ?? 1.0
+    let color = NSColor(
+      srgbRed: CGFloat(r),
+      green: CGFloat(g),
+      blue: CGFloat(b),
+      alpha: CGFloat(a)
+    )
+    pendingAppearanceColor = color
+
+    guard let window = NSApp.windows.first(where: { $0 is MainFlutterWindow }) else {
+      return false
+    }
+    window.backgroundColor = color
+    let darkAqua = NSAppearance(named: .darkAqua)
+    let aqua = NSAppearance(named: .aqua)
+    let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    window.appearance = luminance < 0.5 ? darkAqua : aqua
+
+    var found = 0
+    for view in window.contentView?.subviews ?? [] {
+      found += applyUnderPageBackground(to: view, color: color)
+    }
+    return found > 0
+  }
+
+  /// Recursively walks the view tree, repainting any WKWebView's
+  /// underPageBackgroundColor. Stashes the requested color so views that
+  /// mount later (Flutter platform views are created lazily) still get it.
+  private func applyUnderPageBackground(to view: NSView, color: NSColor) -> Int {
+    var count = 0
+    if let webView = view as? WKWebView {
+      if #available(macOS 12.0, *) {
+        webView.underPageBackgroundColor = color
+      }
+      count += 1
+    }
+    for subview in view.subviews {
+      count += applyUnderPageBackground(to: subview, color: color)
+    }
+    return count
+  }
+
+  /// Called from `applicationDidBecomeActive` so any WKWebView that was
+  /// mounted after the Dart-side push still picks up the saved color.
+  func reapplyPendingAppearanceColor() {
+    guard let color = pendingAppearanceColor,
+          let window = NSApp.windows.first(where: { $0 is MainFlutterWindow }) else {
+      return
+    }
+    for view in window.contentView?.subviews ?? [] {
+      _ = applyUnderPageBackground(to: view, color: color)
+    }
   }
 
   private func setRecentDocuments(_ arguments: Any?) {

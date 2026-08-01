@@ -12,12 +12,29 @@ class MarkdownOutlineService {
       offset += line.length + 1;
     }
 
+    // Skip a leading YAML front matter block (`---\n...\n---\n`) line-by-line
+    // instead of stripping the source. Its inner `key: value\n---\n` looks
+    // exactly like a setext h2 to the scanner and would inject a phantom
+    // heading that desyncs every later anchor from the DOM by one. Stripping
+    // the source would shift line numbers; skipping in-place keeps the
+    // reported `lineNumber` aligned with the original file (so the outline
+    // panel and editor jumps point at the right row).
+    var startIndex = 0;
+    if (lines.isNotEmpty && RegExp(r'^---[ \t]*$').hasMatch(lines[0])) {
+      for (var i = 1; i < lines.length; i++) {
+        if (RegExp(r'^---[ \t]*$').hasMatch(lines[i])) {
+          startIndex = i + 1;
+          break;
+        }
+      }
+    }
+
     final headings = <MarkdownHeading>[];
     final anchorCounts = <String, int>{};
     _Fence? fence;
     _SetextCandidate? setextCandidate;
 
-    for (var index = 0; index < lines.length; index++) {
+    for (var index = startIndex; index < lines.length; index++) {
       final line = _withoutCarriageReturn(lines[index]);
       final marker = _fenceMarker(line);
       if (fence != null) {

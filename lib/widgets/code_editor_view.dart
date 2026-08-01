@@ -68,7 +68,7 @@ class CodeEditorView extends StatelessWidget {
         onChanged: onChanged,
         wordWrap: wordWrap,
         autofocus: true,
-        padding: const EdgeInsets.fromLTRB(12, 14, 24, 28),
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 28),
         style: CodeEditorStyle(
           fontFamily: 'MapleMonoCN',
           fontFamilyFallback: const ['monospace'],
@@ -121,7 +121,7 @@ class CodeEditorView extends StatelessWidget {
                 ),
               );
             },
-        leadingDivider: const SignalDivider(vertical: true),
+        leadingDivider: SignalDivider(vertical: true),
         findBuilder: (context, findController, readOnly) =>
             EditorFindPanel(controller: findController, readOnly: readOnly),
         toolbarController: const EditorContextMenuController(),

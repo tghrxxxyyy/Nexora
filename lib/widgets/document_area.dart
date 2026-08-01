@@ -1,12 +1,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path/path.dart' as p;
 
 import '../app_theme.dart';
+import '../services/file_icon_resolver.dart';
 import '../state/app_controller.dart';
 import '../state/editor_session.dart';
 import 'code_editor_view.dart';
+import 'diff_view.dart';
+import 'file_context_menu.dart';
 import 'html_preview.dart';
 import 'image_preview.dart';
 import 'markdown_dom_preview.dart';
@@ -43,6 +47,8 @@ class DocumentToolbar extends StatelessWidget {
                       final itemSession = controller.sessions[path];
                       if (itemSession == null) return const SizedBox.shrink();
                       return _DocumentTab(
+                        path: path,
+                        controller: controller,
                         name: itemSession.document.name,
                         dirty: itemSession.document.isDirty,
                         selected: session?.document.path == path,
@@ -169,6 +175,9 @@ class DocumentArea extends StatelessWidget {
     if (workspace == null) {
       return _LaunchSurface(controller: controller);
     }
+    if (controller.gitActiveDiff != null) {
+      return DiffView(controller: controller);
+    }
     if (session == null) {
       return _WorkspaceIdle(
         name: workspace.name,
@@ -230,7 +239,7 @@ class DocumentArea extends StatelessWidget {
       child: Row(
         children: [
           Expanded(flex: 11, child: _editor(session)),
-          const SignalDivider(vertical: true),
+          SignalDivider(vertical: true),
           Expanded(flex: 10, child: _preview(session)),
         ],
       ),
@@ -274,7 +283,6 @@ class DocumentArea extends StatelessWidget {
         previewAnchor: session.previewAnchor,
         previewJumpId: session.previewJumpId,
         findController: session.previewFindController,
-        markdownTheme: controller.markdownTheme,
         onOpenLocalPath: controller.openPath,
         onOpenAnchor: (anchor) {
           for (final heading in session.headings) {
@@ -295,7 +303,7 @@ class DocumentArea extends StatelessWidget {
       previewJumpId: session.previewJumpId,
       findController: session.previewFindController,
       themeMode: controller.themeMode,
-      markdownTheme: controller.markdownTheme,
+      themeId: controller.currentThemeId,
       fontScale: controller.fontScale,
       onContentChanged: session.replaceContentFromPreview,
       onOpenLocalPath: controller.openPath,
@@ -407,6 +415,8 @@ class _ModeItem extends StatelessWidget {
 
 class _DocumentTab extends StatefulWidget {
   const _DocumentTab({
+    required this.path,
+    required this.controller,
     required this.name,
     required this.dirty,
     required this.selected,
@@ -414,6 +424,8 @@ class _DocumentTab extends StatefulWidget {
     required this.onClose,
   });
 
+  final String path;
+  final AppController controller;
   final String name;
   final bool dirty;
   final bool selected;
@@ -435,6 +447,13 @@ class _DocumentTabState extends State<_DocumentTab> {
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onSelect,
+        onSecondaryTapDown: (details) => showFileContextMenu(
+          context: context,
+          position: details.globalPosition,
+          controller: widget.controller,
+          path: widget.path,
+          isDirectory: false,
+        ),
         child: AnimatedContainer(
           duration: AppMotion.quick,
           width: 142,
@@ -460,11 +479,7 @@ class _DocumentTabState extends State<_DocumentTab> {
                   ),
                 )
               else
-                Icon(
-                  Icons.description_outlined,
-                  size: 12,
-                  color: AppColors.textDim,
-                ),
+                _TabFileIcon(path: widget.path),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -493,6 +508,34 @@ class _DocumentTabState extends State<_DocumentTab> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TabFileIcon extends StatelessWidget {
+  const _TabFileIcon({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    final visual = resolveFileVisual(
+      FileIconContext(path: path, isDirectory: false),
+    );
+    if (visual.svgAssetKey != null) {
+      return SvgPicture.asset(
+        visual.svgAssetKey!,
+        width: 14,
+        height: 14,
+        colorFilter: visual.tintSvg && visual.color != null
+            ? ColorFilter.mode(visual.color!, BlendMode.srcIn)
+            : null,
+      );
+    }
+    return Icon(
+      visual.icon ?? Icons.description_outlined,
+      size: 12,
+      color: visual.color ?? AppColors.textDim,
     );
   }
 }

@@ -37,7 +37,7 @@ class _OutlinePanelState extends State<OutlinePanel> {
               ),
             ),
           ),
-          const SignalDivider(),
+          SignalDivider(),
           Expanded(
             child: entries.isEmpty
                 ? const _EmptyOutline()
@@ -280,7 +280,7 @@ class _OutlineName extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color: emphasized
-            ? Colors.white
+            ? AppColors.text
             : selected
             ? AppColors.text
             : AppColors.textMuted,
@@ -292,8 +292,8 @@ class _OutlineName extends StatelessWidget {
     if (!emphasized) return text;
     return ShaderMask(
       blendMode: BlendMode.srcIn,
-      shaderCallback: (bounds) => const LinearGradient(
-        colors: [Color(0xFF1A3145), Color(0xFF287AB8)],
+      shaderCallback: (bounds) => LinearGradient(
+        colors: [AppColors.signal, AppColors.signalDim],
       ).createShader(bounds),
       child: text,
     );

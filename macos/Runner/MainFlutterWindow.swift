@@ -17,6 +17,10 @@ class MainFlutterWindow: NSWindow {
     styleMask.insert(.fullSizeContentView)
     isMovableByWindowBackground = true
     minSize = NSSize(width: 960, height: 640)
+    // Start with white; the Dart side pushes the real theme color via the
+    // `com.xuyu.nexora/webview_appearance` method channel as soon as the
+    // app state restores. Without this, dark theme flashes white at the
+    // edges while the WebView is still loading.
     backgroundColor = .white
     appearance = NSAppearance(named: .aqua)
 

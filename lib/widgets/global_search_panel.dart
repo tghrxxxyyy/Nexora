@@ -206,7 +206,7 @@ class _GlobalSearchPanelState extends State<GlobalSearchPanel> {
               ],
             ),
           ),
-          const SignalDivider(),
+          SignalDivider(),
           if (controller.searching)
             LinearProgressIndicator(
               minHeight: 1,
