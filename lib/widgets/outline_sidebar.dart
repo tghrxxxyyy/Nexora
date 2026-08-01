@@ -3,12 +3,18 @@ import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models/markdown_heading.dart';
 import '../state/app_controller.dart';
+import '../state/editor_session.dart';
 import 'ui_primitives.dart';
 
 class OutlinePanel extends StatefulWidget {
-  const OutlinePanel({required this.controller, super.key});
+  const OutlinePanel({
+    required this.controller,
+    required this.session,
+    super.key,
+  });
 
   final AppController controller;
+  final EditorSession session;
 
   @override
   State<OutlinePanel> createState() => _OutlinePanelState();
@@ -20,8 +26,7 @@ class _OutlinePanelState extends State<OutlinePanel> {
 
   @override
   Widget build(BuildContext context) {
-    final session = widget.controller.activeSession;
-    final headings = session?.headings ?? const <MarkdownHeading>[];
+    final headings = widget.session.headings;
     final entries = _visibleEntries(headings);
     return PanelSurface(
       child: Column(

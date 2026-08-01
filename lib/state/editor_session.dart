@@ -95,6 +95,44 @@ class EditorSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Pushes external content into this session without losing the user's
+  /// cursor position. Used to synchronize edits from a sibling pane that's
+  /// showing the same document — the receiving pane keeps its own scroll
+  /// and (when possible) caret line.
+  void setExternalContent(String content) {
+    if (content == _document.content) return;
+    _suppressEditorChange = true;
+    final previousSelection = editorController.selection;
+    _document = _document.copyWith(content: content);
+    editorController.text = content;
+    // Restoring selection: clamp line indices against the new codeLines
+    // length so we don't paint a caret on a deleted line.
+    final lineCount = editorController.codeLines.length;
+    if (lineCount > 0) {
+      final baseIndex = previousSelection.baseIndex.clamp(0, lineCount - 1);
+      final extentIndex =
+          previousSelection.extentIndex.clamp(0, lineCount - 1);
+      final baseLineLength = editorController.codeLines[baseIndex].text.length;
+      final extentLineLength =
+          editorController.codeLines[extentIndex].text.length;
+      editorController.selection = CodeLineSelection(
+        baseIndex: baseIndex,
+        baseOffset:
+            previousSelection.baseOffset.clamp(0, baseLineLength),
+        extentIndex: extentIndex,
+        extentOffset:
+            previousSelection.extentOffset.clamp(0, extentLineLength),
+        baseAffinity: previousSelection.baseAffinity,
+        extentAffinity: previousSelection.extentAffinity,
+      );
+    }
+    _headings = _document.isMarkdown
+        ? _outlineService.extract(content)
+        : const [];
+    _suppressEditorChange = false;
+    notifyListeners();
+  }
+
   void markExternalChange() {
     if (_externallyChanged) return;
     _externallyChanged = true;

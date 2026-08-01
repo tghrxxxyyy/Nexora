@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path/path.dart' as p;
@@ -7,7 +9,10 @@ import '../models/file_node.dart';
 import '../models/markdown_heading.dart';
 import '../services/file_icon_resolver.dart';
 import '../state/app_controller.dart';
+import '../utils/path_display.dart';
+import 'drag_feedback.dart';
 import 'file_context_menu.dart';
+import 'pane_drag_payload.dart';
 import 'ui_primitives.dart';
 
 enum _TreeRowType { directory, file, heading }
@@ -357,6 +362,28 @@ class _FileRow extends StatefulWidget {
 }
 
 class _FileRowState extends State<_FileRow> {
+  Timer? _tooltipHideTimer;
+
+  @override
+  void dispose() {
+    _tooltipHideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onHoverEnter() {
+    widget.onHoverChanged(true);
+    if (!widget.row.isFile) return;
+    _tooltipHideTimer?.cancel();
+    _tooltipHideTimer = Timer(const Duration(seconds: 1), () {
+      Tooltip.dismissAllToolTips();
+    });
+  }
+
+  void _onHoverExit() {
+    widget.onHoverChanged(false);
+    _tooltipHideTimer?.cancel();
+  }
+
   @override
   Widget build(BuildContext context) {
     final row = widget.row;
@@ -369,10 +396,10 @@ class _FileRowState extends State<_FileRow> {
       _ => 1.0,
     };
 
-    return MouseRegion(
+    final body = MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => widget.onHoverChanged(true),
-      onExit: (_) => widget.onHoverChanged(false),
+      onEnter: (_) => _onHoverEnter(),
+      onExit: (_) => _onHoverExit(),
       child: AnimatedScale(
         duration: const Duration(milliseconds: 175),
         curve: AppMotion.emphasized,
@@ -479,6 +506,19 @@ class _FileRowState extends State<_FileRow> {
           ),
         ),
       ),
+    );
+    if (!row.isFile) return body;
+    final withTooltip = Tooltip(
+      message: truncatePathForDisplay(row.node.path),
+      waitDuration: const Duration(milliseconds: 100),
+      child: body,
+    );
+    return Draggable<PaneDragPayload>(
+      data: PaneDragPayload(filePath: row.node.path),
+      feedback: PaneDragFeedback(filePath: row.node.path),
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      childWhenDragging: Opacity(opacity: 0.4, child: withTooltip),
+      child: withTooltip,
     );
   }
 

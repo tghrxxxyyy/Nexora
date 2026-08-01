@@ -1,20 +1,21 @@
-import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path/path.dart' as p;
 
 import '../app_theme.dart';
+import '../models/split_layout.dart';
+import '../models/workspace_item.dart';
 import '../services/file_icon_resolver.dart';
 import '../state/app_controller.dart';
 import '../state/editor_session.dart';
-import 'code_editor_view.dart';
+import '../utils/path_display.dart';
 import 'diff_view.dart';
+import 'drag_feedback.dart';
 import 'file_context_menu.dart';
-import 'html_preview.dart';
-import 'image_preview.dart';
-import 'markdown_dom_preview.dart';
-import 'markdown_preview.dart';
+import 'pane_drag_payload.dart';
+import 'split_pane_host.dart';
 import 'ui_primitives.dart';
 
 class DocumentToolbar extends StatelessWidget {
@@ -28,106 +29,37 @@ class DocumentToolbar extends StatelessWidget {
     final documentPaths = controller.activeDocumentPaths;
     return DecoratedBox(
       decoration: BoxDecoration(color: AppColors.backgroundRaised),
-      child: Row(
-        children: [
-          Expanded(
-            child: documentPaths.isEmpty
-                ? const SizedBox.shrink()
-                : ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 6,
-                    ),
-                    itemCount: documentPaths.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(width: 4),
-                    itemBuilder: (context, index) {
-                      final path = documentPaths[index];
-                      final itemSession = controller.sessions[path];
-                      if (itemSession == null) return const SizedBox.shrink();
-                      return _DocumentTab(
-                        path: path,
-                        controller: controller,
-                        name: itemSession.document.name,
-                        dirty: itemSession.document.isDirty,
-                        selected: session?.document.path == path,
-                        onSelect: () => controller.selectDocument(path),
-                        onClose: () => _closeDocument(
-                          context,
-                          controller,
-                          path,
-                          itemSession.document.isDirty,
-                        ),
-                      );
-                    },
+      child: documentPaths.isEmpty
+          ? const SizedBox.shrink()
+          : ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 7,
+                vertical: 4,
+              ),
+              itemCount: documentPaths.length,
+              separatorBuilder: (context, index) =>
+                  const SizedBox(width: 4),
+              itemBuilder: (context, index) {
+                final path = documentPaths[index];
+                final itemSession = controller.sessions[path];
+                if (itemSession == null) return const SizedBox.shrink();
+                return _DocumentTab(
+                  path: path,
+                  controller: controller,
+                  name: itemSession.document.name,
+                  dirty: itemSession.document.isDirty,
+                  selected: session?.document.path == path,
+                  onSelect: () => controller.selectDocument(path),
+                  onClose: () => _closeDocument(
+                    context,
+                    controller,
+                    path,
+                    itemSession.document.isDirty,
                   ),
-          ),
-          if (session != null) ...[
-            AppIconButton(
-              icon: Icons.undo_rounded,
-              tooltip: '撤销',
-              size: 30,
-              iconSize: 16,
-              onPressed: session.editorController.canUndo
-                  ? session.editorController.undo
-                  : null,
+                );
+              },
             ),
-            AppIconButton(
-              icon: Icons.redo_rounded,
-              tooltip: '重做',
-              size: 30,
-              iconSize: 16,
-              onPressed: session.editorController.canRedo
-                  ? session.editorController.redo
-                  : null,
-            ),
-            AppIconButton(
-              icon: Icons.save_outlined,
-              tooltip: '保存',
-              selected: session.document.isDirty,
-              accent: AppColors.signal,
-              size: 30,
-              iconSize: 16,
-              onPressed: session.document.isDirty
-                  ? controller.saveActiveDocument
-                  : null,
-            ),
-            const SizedBox(width: 5),
-            if (session.document.isMarkdown || session.document.isHtml)
-              _ViewModeControl(session: session),
-            if (session.document.isHtml)
-              AppIconButton(
-                icon: Icons.open_in_browser_rounded,
-                tooltip: '在 Chrome 中打开',
-                size: 30,
-                iconSize: 16,
-                onPressed: controller.openActiveHtmlInChrome,
-              ),
-            const SizedBox(width: 5),
-            AppIconButton(
-              icon: Icons.wrap_text_rounded,
-              tooltip: '自动换行',
-              selected: session.wordWrap,
-              size: 30,
-              iconSize: 16,
-              onPressed: session.toggleWordWrap,
-            ),
-            if (session.document.isMarkdown)
-              AppIconButton(
-                icon: controller.rightCollapsed
-                    ? Icons.toc_rounded
-                    : Icons.last_page_rounded,
-                tooltip: controller.rightCollapsed ? '展开目录' : '收起目录',
-                selected: !controller.rightCollapsed,
-                size: 30,
-                iconSize: 16,
-                onPressed: controller.toggleRightSidebar,
-              ),
-            const SizedBox(width: 7),
-          ],
-        ],
-      ),
     );
   }
 
@@ -190,225 +122,24 @@ class DocumentArea extends StatelessWidget {
         if (session.externallyChanged || session.deletedOnDisk)
           _ConflictBanner(controller: controller, session: session),
         Expanded(
-          child: ClipRect(
-            child: AnimatedSwitcher(
-              duration: AppMotion.standard,
-              switchInCurve: AppMotion.curve,
-              switchOutCurve: Curves.easeIn,
-              layoutBuilder: (currentChild, previousChildren) => Stack(
-                fit: StackFit.expand,
-                children: [...previousChildren, ?currentChild],
-              ),
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0.012, 0),
-                    end: Offset.zero,
-                  ).animate(animation),
-                  child: child,
-                ),
-              ),
-              child: _buildMode(session),
-            ),
-          ),
+          child: ClipRect(child: _buildPaneSurface(workspace, session)),
         ),
       ],
     );
   }
 
-  Widget _buildMode(EditorSession session) {
-    final canPreview =
-        session.document.isMarkdown ||
-        session.document.isHtml ||
-        session.document.isImage;
-    if (!canPreview || session.viewMode == MarkdownViewMode.edit) {
-      return KeyedSubtree(
-        key: ValueKey('${session.document.path}:edit'),
-        child: _editor(session),
-      );
+  Widget _buildPaneSurface(WorkspaceItem workspace, EditorSession session) {
+    final split = workspace.split;
+    if (split != null) {
+      return SplitPaneHost(controller: controller, node: split);
     }
-    if (session.viewMode == MarkdownViewMode.preview) {
-      return KeyedSubtree(
-        key: const ValueKey('document-preview'),
-        child: _preview(session),
-      );
-    }
-    return KeyedSubtree(
-      key: ValueKey('${session.document.path}:split'),
-      child: Row(
-        children: [
-          Expanded(flex: 11, child: _editor(session)),
-          SignalDivider(vertical: true),
-          Expanded(flex: 10, child: _preview(session)),
-        ],
-      ),
-    );
-  }
-
-  Widget _editor(EditorSession session) {
-    return CodeEditorView(
-      path: session.document.path,
-      controller: session.editorController,
-      findController: session.findController,
-      wordWrap: session.wordWrap,
-      fontScale: controller.fontScale,
-      onChanged: (_) {},
-    );
-  }
-
-  Widget _preview(EditorSession session) {
-    final workspace = controller.activeWorkspace;
-    final workspaceRoot = workspace?.isDirectory == true
-        ? workspace!.path
-        : p.dirname(session.document.path);
-    if (session.document.isImage) {
-      return ImagePreview(path: session.document.path);
-    }
-    if (session.document.isHtml) {
-      return HtmlPreview(
-        path: session.document.path,
-        content: session.document.content,
-      );
-    }
-    // Linux has no embedded WebView implementation in this app. Windows uses
-    // WebView2 inside MarkdownDomPreview, keeping its editable DOM behavior
-    // aligned with macOS.
-    if (Platform.isLinux) {
-      return MarkdownPreview(
-        path: session.document.path,
-        workspaceRoot: workspaceRoot,
-        content: session.document.content,
-        headings: session.headings,
-        previewAnchor: session.previewAnchor,
-        previewJumpId: session.previewJumpId,
-        findController: session.previewFindController,
-        onOpenLocalPath: controller.openPath,
-        onOpenAnchor: (anchor) {
-          for (final heading in session.headings) {
-            if (heading.anchor == anchor) {
-              controller.jumpToHeading(heading.lineNumber, heading.anchor);
-              break;
-            }
-          }
-        },
-      );
-    }
-    return MarkdownDomPreview(
-      path: session.document.path,
-      workspaceRoot: workspaceRoot,
-      content: session.document.content,
-      headings: session.headings,
-      previewAnchor: session.previewAnchor,
-      previewJumpId: session.previewJumpId,
-      findController: session.previewFindController,
-      themeMode: controller.themeMode,
-      themeId: controller.currentThemeId,
-      fontScale: controller.fontScale,
-      onContentChanged: session.replaceContentFromPreview,
-      onOpenLocalPath: controller.openPath,
-      onOpenAnchor: (anchor) {
-        for (final heading in session.headings) {
-          if (heading.anchor == anchor) {
-            controller.jumpToHeading(heading.lineNumber, heading.anchor);
-            break;
-          }
-        }
-      },
-    );
-  }
-}
-
-class _ViewModeControl extends StatelessWidget {
-  const _ViewModeControl({required this.session});
-
-  final EditorSession session;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 30,
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _ModeItem(
-            label: '编辑',
-            icon: Icons.edit_outlined,
-            selected: session.viewMode == MarkdownViewMode.edit,
-            onTap: () => session.setViewMode(MarkdownViewMode.edit),
-          ),
-          _ModeItem(
-            label: '分屏',
-            icon: Icons.vertical_split_outlined,
-            selected: session.viewMode == MarkdownViewMode.split,
-            onTap: () => session.setViewMode(MarkdownViewMode.split),
-          ),
-          _ModeItem(
-            label: '预览',
-            icon: Icons.visibility_outlined,
-            selected: session.viewMode == MarkdownViewMode.preview,
-            onTap: () => session.setViewMode(MarkdownViewMode.preview),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ModeItem extends StatelessWidget {
-  const _ModeItem({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(3),
-      child: AnimatedContainer(
-        duration: AppMotion.quick,
-        width: 54,
-        height: 24,
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.signal.withValues(alpha: 0.13)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(3),
-        ),
-        alignment: Alignment.center,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 12,
-              color: selected ? AppColors.signal : AppColors.textDim,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? AppColors.text : AppColors.textDim,
-                fontSize: 9.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
+    // No split yet — synthesize a single-leaf tree so the renderer treats the
+    // unsplit case exactly like a one-pane split (per-pane tab strip and
+    // drop-zone included). paneLeaf('root') in the controller falls back to
+    // the workspace's open documents to populate the tab strip.
+    return SplitPaneHost(
+      controller: controller,
+      node: SplitLeaf(paneId: 'root', openPaths: [session.document.path]),
     );
   }
 }
@@ -438,15 +169,69 @@ class _DocumentTab extends StatefulWidget {
 
 class _DocumentTabState extends State<_DocumentTab> {
   bool _hovered = false;
+  Timer? _tooltipHideTimer;
+
+  @override
+  void dispose() {
+    _tooltipHideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onHoverEnter() {
+    setState(() => _hovered = true);
+    _tooltipHideTimer?.cancel();
+    _tooltipHideTimer = Timer(const Duration(seconds: 1), () {
+      Tooltip.dismissAllToolTips();
+    });
+  }
+
+  void _onHoverExit() {
+    setState(() => _hovered = false);
+    _tooltipHideTimer?.cancel();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onSelect,
+    return Draggable<PaneDragPayload>(
+      data: PaneDragPayload(filePath: widget.path),
+      feedback: PaneDragFeedback(filePath: widget.path),
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      childWhenDragging: Opacity(
+        opacity: 0.4,
+        child: Tooltip(
+          message: truncatePathForDisplay(widget.path),
+          waitDuration: const Duration(milliseconds: 100),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => _onHoverEnter(),
+            onExit: (_) => _onHoverExit(),
+            child: SizedBox(
+              width: 142,
+              height: 30,
+              child: Center(
+                child: Text(
+                  widget.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      child: Tooltip(
+        message: truncatePathForDisplay(widget.path),
+        waitDuration: const Duration(milliseconds: 100),
+        child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => _onHoverEnter(),
+        onExit: (_) => _onHoverExit(),
+        child: GestureDetector(
+          onTap: widget.onSelect,
         onSecondaryTapDown: (details) => showFileContextMenu(
           context: context,
           position: details.globalPosition,
@@ -469,17 +254,7 @@ class _DocumentTabState extends State<_DocumentTab> {
           ),
           child: Row(
             children: [
-              if (widget.dirty)
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: AppColors.amber,
-                    shape: BoxShape.circle,
-                  ),
-                )
-              else
-                _TabFileIcon(path: widget.path),
+              _TabFileIcon(path: widget.path),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -494,19 +269,32 @@ class _DocumentTabState extends State<_DocumentTab> {
                   ),
                 ),
               ),
-              if (_hovered || widget.selected)
-                AppIconButton(
-                  icon: Icons.close_rounded,
-                  tooltip: '关闭文件',
-                  size: 23,
-                  iconSize: 12,
-                  onPressed: widget.onClose,
+              if (widget.dirty || _hovered || widget.selected)
+                GestureDetector(
+                  onTap: widget.onClose,
+                  child: Tooltip(
+                    message: widget.dirty
+                        ? (_hovered ? '关闭并放弃修改' : '未保存')
+                        : '关闭文件',
+                    waitDuration: const Duration(milliseconds: 500),
+                    child: Container(
+                      width: 23,
+                      height: 23,
+                      alignment: Alignment.center,
+                      child: _DirtyAwareCloseIcon(
+                        dirty: widget.dirty,
+                        hovered: _hovered,
+                      ),
+                    ),
+                  ),
                 )
               else
                 const SizedBox(width: 23),
             ],
           ),
         ),
+      ),
+      ),
       ),
     );
   }
@@ -536,6 +324,36 @@ class _TabFileIcon extends StatelessWidget {
       visual.icon ?? Icons.description_outlined,
       size: 12,
       color: visual.color ?? AppColors.textDim,
+    );
+  }
+}
+
+/// Renders the close button as a • when the document is dirty (and not yet
+/// hovered) so the user gets a visible "unsaved changes" cue. Switches to the
+/// x icon on hover so the action is still discoverable. Matches VSCode's
+/// editor-tab behavior.
+class _DirtyAwareCloseIcon extends StatelessWidget {
+  const _DirtyAwareCloseIcon({required this.dirty, required this.hovered});
+
+  final bool dirty;
+  final bool hovered;
+
+  @override
+  Widget build(BuildContext context) {
+    if (dirty && !hovered) {
+      return Container(
+        width: 7,
+        height: 7,
+        decoration: BoxDecoration(
+          color: AppColors.textMuted,
+          shape: BoxShape.circle,
+        ),
+      );
+    }
+    return Icon(
+      Icons.close_rounded,
+      size: 13,
+      color: hovered ? AppColors.text : AppColors.textDim,
     );
   }
 }

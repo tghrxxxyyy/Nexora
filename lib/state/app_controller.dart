@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
@@ -7,11 +8,13 @@ import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 
 import '../app_theme.dart';
+import '../models/document_model.dart';
 import '../models/file_change_event.dart';
 import '../models/file_node.dart';
 import '../models/git_commit.dart';
 import '../models/git_diff.dart';
 import '../models/search_models.dart';
+import '../models/split_layout.dart';
 import '../models/terminal_layout.dart';
 import '../models/workspace_item.dart';
 import '../services/file_icon_resolver.dart';
@@ -76,6 +79,7 @@ class AppController extends ChangeNotifier {
   final List<WorkspaceItem> _workspaces = [];
   final List<WorkspaceItem> _recentItems = [];
   final Map<String, EditorSession> _sessions = {};
+  final Map<String, EditorSession> _paneSessions = {};
   final Map<String, List<String>> _workspaceDocuments = {};
   final Map<String, List<FileNode>> _directoryChildren = {};
   final Set<String> _expandedDirectories = {};
@@ -423,6 +427,14 @@ class AppController extends ChangeNotifier {
     final documentPaths = List<String>.from(
       _workspaceDocuments.remove(workspace.id) ?? const [],
     );
+    // Drop any pane clones belonging to this workspace's split tree before
+    // tearing down the workspace itself.
+    final split = workspace.split;
+    if (split != null) {
+      for (final leaf in split.leaves) {
+        _paneSessions.remove(leaf.paneId)?.dispose();
+      }
+    }
     _workspaces.removeAt(index);
 
     for (final path in documentPaths) {
@@ -628,19 +640,29 @@ class AppController extends ChangeNotifier {
     var session = _sessions[normalizedPath];
     if (session == null) {
       final document = await _fileSystemService.readDocument(normalizedPath);
-      session = EditorSession(document)..addListener(_onSessionChanged);
+      session = _createSession(document);
       _sessions[normalizedPath] = session;
     }
 
     final documents = _workspaceDocuments[workspace.id] ??= [];
     if (!documents.contains(normalizedPath)) documents.add(normalizedPath);
     final workspaceIndex = _workspaces.indexOf(workspace);
-    if (workspaceIndex >= 0) {
+    _activeWorkspaceIndex = workspaceIndex;
+    // When a split is active, route the open through the pane that currently
+    // hosts the workspace's selectedFilePath (or the primary-most pane if the
+    // selected path isn't in any pane yet) so the new file lands as a tab in
+    // the focused pane without disturbing sibling panes.
+    final activeSplit = workspace.split;
+    if (activeSplit != null) {
+      final targetPaneId = _paneIdContainingPath(activeSplit, workspace.selectedFilePath) ??
+          activeSplit.leaves.first.paneId;
+      await addToPaneDocument(targetPaneId, normalizedPath);
+      // addToPaneDocument already updated workspace.selectedFilePath + split.
+    } else if (workspaceIndex >= 0) {
       _workspaces[workspaceIndex] = workspace.copyWith(
         selectedFilePath: normalizedPath,
       );
     }
-    _activeWorkspaceIndex = workspaceIndex;
     notifyListeners();
     await revealPathInWorkspace(normalizedPath);
   }
@@ -654,9 +676,23 @@ class AppController extends ChangeNotifier {
     )) {
       return;
     }
-    _workspaces[_activeWorkspaceIndex] = workspace.copyWith(
-      selectedFilePath: normalizedPath,
-    );
+    // When a split is active, route the click through the pane that contains
+    // (or most recently hosted) the path — switching its active tab rather
+    // than replacing the pane's contents.
+    final split = workspace.split;
+    if (split != null) {
+      final paneId = _paneIdContainingPath(split, normalizedPath) ??
+          _paneIdContainingPath(split, workspace.selectedFilePath) ??
+          split.leaves.first.paneId;
+      // Make sure the path is a tab in that pane (push if missing) and active.
+      unawaited(addToPaneDocument(paneId, normalizedPath));
+      // Fall through to update selectedFilePath / record recent — split is
+      // already up to date via addToPaneDocument.
+    } else {
+      _workspaces[_activeWorkspaceIndex] = workspace.copyWith(
+        selectedFilePath: normalizedPath,
+      );
+    }
     _recordRecent(
       WorkspaceItem(
         path: normalizedPath,
@@ -669,6 +705,16 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     _scheduleSessionSave();
     unawaited(revealPathInWorkspace(normalizedPath));
+  }
+
+  /// Finds the paneId whose openPaths contains [path]. Returns null when [path]
+  /// isn't open in any pane (e.g. null input, or path not yet tabbed).
+  String? _paneIdContainingPath(SplitNode? node, String? path) {
+    if (node == null || path == null) return null;
+    for (final leaf in node.leaves) {
+      if (leaf.openPaths.contains(path)) return leaf.paneId;
+    }
+    return null;
   }
 
   /// Expands every ancestor directory of [filePath] inside the owning
@@ -747,7 +793,7 @@ class AppController extends ChangeNotifier {
     if (!_sessions.containsKey(normalizedPath)) {
       try {
         final document = await _fileSystemService.readDocument(normalizedPath);
-        final session = EditorSession(document)..addListener(_onSessionChanged);
+        final session = _createSession(document);
         _sessions[normalizedPath] = session;
       } on Exception {
         return;
@@ -1201,6 +1247,18 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  void undoActiveDocument() {
+    final session = activeSession;
+    if (session == null) return;
+    session.editorController.undo();
+  }
+
+  void redoActiveDocument() {
+    final session = activeSession;
+    if (session == null) return;
+    session.editorController.redo();
+  }
+
   Future<void> search(String query, SearchOptions options) async {
     final workspace = activeWorkspace;
     if (workspace == null || query.isEmpty) return;
@@ -1468,8 +1526,605 @@ class AppController extends ChangeNotifier {
     if (activeSession?.document.isMarkdown != true) _rightCollapsed = true;
   }
 
-  void _onSessionChanged() {
+  /// Wires a freshly constructed session into the controller's listener
+  /// graph so content edits propagate to sibling panes showing the same
+  /// document and the UI rebuilds.
+  EditorSession _createSession(DocumentModel document) {
+    final session = EditorSession(document);
+    session.addListener(() {
+      _syncSessionContent(session);
+      notifyListeners();
+    });
+    return session;
+  }
+
+  /// Pushes [source]'s content to every other live session that points at
+  /// the same path. Used to keep split panes of one document in sync without
+  /// sharing a single `CodeLineEditingController`.
+  void _syncSessionContent(EditorSession source) {
+    final sourcePath = source.document.path;
+    for (final other in {..._sessions.values, ..._paneSessions.values}) {
+      if (identical(other, source)) continue;
+      if (other.document.path != sourcePath) continue;
+      other.setExternalContent(source.document.content);
+    }
+  }
+
+  String _generatePaneId() {
+    return 'pane_${DateTime.now().microsecondsSinceEpoch}_'
+        '${math.Random().nextInt(1 << 32).toRadixString(36)}';
+  }
+
+  /// Returns the split tree for the active workspace, or null when the
+  /// workspace is in single-pane mode.
+  SplitNode? get activeSplit => activeWorkspace?.split;
+
+  /// True when the active workspace has more than one pane.
+  bool get isSplit {
+    final node = activeWorkspace?.split;
+    return node != null && node.leaves.length > 1;
+  }
+
+  /// Returns the session backing [paneId]. Prefers a dedicated clone (each
+  /// pane gets an independent controller so cursors don't fight); falls back
+  /// to the primary session keyed by file path for the primary-most leaf,
+  /// which intentionally shares the tab strip's canonical session to preserve
+  /// cursor/scroll on the first split.
+  EditorSession? paneSessionFor(String paneId) {
+    // Always derive the pane's session from its active path. Per-pane clones
+    // were abandoned because they didn't follow tab switches within a pane
+    // (the clone was bound to whichever document the pane showed at split
+    // time). Sharing the primary session means multi-pane edits of the same
+    // file stay in sync automatically — cursor/scroll also sync, which is
+    // an acceptable tradeoff (matches Sublime rather than VSCode).
+    final leaf = paneLeaf(paneId);
+    if (leaf == null) return activeSession;
+    return _sessions[leaf.filePath];
+  }
+
+  /// Returns the SplitLeaf (with its openPaths / activeIndex) backing [paneId]
+  /// in the active workspace. When the workspace isn't split, falls back to a
+  /// synthesized leaf for the implicit 'root' pane whose openPaths mirror the
+  /// workspace's open documents — so the UI can render a per-pane tab strip
+  /// uniformly whether split or not.
+  SplitLeaf? paneLeaf(String paneId) {
+    final workspace = activeWorkspace;
+    if (workspace == null) return null;
+    final tree = workspace.split;
+    if (tree != null) {
+      for (final leaf in tree.leaves) {
+        if (leaf.paneId == paneId) return leaf;
+      }
+      return null;
+    }
+    // Non-split fallback: only the implicit 'root' pane exists.
+    if (paneId != 'root') return null;
+    final docs = _workspaceDocuments[workspace.id];
+    if (docs == null || docs.isEmpty) return null;
+    final selected = workspace.selectedFilePath;
+    final activeIndex = selected == null
+        ? 0
+        : docs.indexOf(selected).clamp(0, docs.length - 1);
+    return SplitLeaf(
+      paneId: 'root',
+      openPaths: List<String>.from(docs),
+      activeIndex: activeIndex,
+    );
+  }
+
+  /// Splits the pane identified by [targetPaneId] along [axis], placing
+  /// [filePath] in the new pane. The target pane keeps its existing session
+  /// (cursor preserved); only the new pane gets a fresh clone.
+  ///
+  /// When [newPaneIsSecondary] is true (default), the new pane lands on the
+  /// trailing side (right / bottom). When false, the new pane becomes the
+  /// branch's primary (left / top) and the original pane is demoted to the
+  /// secondary slot — used for drops on the leading edge of a pane.
+  Future<void> splitPane({
+    required String targetPaneId,
+    required SplitAxis axis,
+    required String filePath,
+    bool newPaneIsSecondary = true,
+  }) async {
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+
+    // Treat the no-split case as an implicit leaf with targetPaneId so the
+    // renderer can use a stable paneId ('root') without the controller
+    // needing to assign one until a split actually happens.
+    SplitNode current;
+    SplitLeaf targetLeaf;
+    if (workspace.split != null) {
+      current = workspace.split!;
+      if (!current.containsPane(targetPaneId)) return;
+      targetLeaf = current.leaves.firstWhere(
+        (leaf) => leaf.paneId == targetPaneId,
+        orElse: () => SplitLeaf(paneId: targetPaneId, openPaths: const []),
+      );
+    } else {
+      // First split: inherit ALL the workspace's open tabs (not just the
+      // currently selected one) so the originating pane keeps every file the
+      // user had open at the top, with the selected file as the active tab.
+      final docs = List<String>.from(
+        _workspaceDocuments[workspace.id] ?? const [],
+      );
+      if (docs.isEmpty) {
+        final selected = workspace.selectedFilePath;
+        if (selected == null) return;
+        docs.add(selected);
+      }
+      final selected = workspace.selectedFilePath;
+      final activeIndex = selected == null
+          ? docs.length - 1
+          : docs.indexOf(selected).clamp(0, docs.length - 1);
+      targetLeaf = SplitLeaf(
+        paneId: targetPaneId,
+        openPaths: docs,
+        activeIndex: activeIndex,
+      );
+      current = targetLeaf;
+    }
+    if (targetLeaf.openPaths.isEmpty) return;
+
+    final primaryPath = targetLeaf.filePath;
+    final newPaneId = _generatePaneId();
+    final newPath = _normalize(filePath);
+
+    // Ensure primary sessions exist for both files (tab strip, save, watch).
+    await _ensurePrimarySession(primaryPath);
+    await _ensurePrimarySession(newPath);
+    // Clone only the new pane — target pane keeps its existing session.
+    await _ensurePaneClone(newPaneId, newPath);
+
+    final newLeaf = SplitLeaf(paneId: newPaneId, openPaths: [newPath]);
+    final branch = newPaneIsSecondary
+        ? SplitBranch(
+            axis: axis,
+            primary: targetLeaf,
+            secondary: newLeaf,
+            ratio: 0.5,
+          )
+        : SplitBranch(
+            axis: axis,
+            primary: newLeaf,
+            secondary: targetLeaf,
+            ratio: 0.5,
+          );
+    final next = workspace.split == null
+        ? branch
+        : current.replacePane(targetPaneId, branch) ?? branch;
+
+    _replaceWorkspaceSplit(workspace, next);
     notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Opens [filePath] in [paneId] — pushing a new tab if the file isn't
+  /// already open in this pane, or just activating the existing tab if it is.
+  /// Used when a file is dropped into the center of a pane, or when an
+  /// open/select call routes through a pane in split mode.
+  Future<void> addToPaneDocument(String paneId, String filePath) async {
+    final workspace = activeWorkspace;
+    if (workspace == null || workspace.split == null) return;
+    final current = workspace.split!;
+    if (!current.containsPane(paneId)) return;
+
+    final normalized = _normalize(filePath);
+    await _ensurePrimarySession(normalized);
+
+    // Make sure this pane has a backing clone session for the path so the
+    // editor surface renders the right content even on non-primary panes.
+    if (!_paneSessions.containsKey(paneId)) {
+      await _ensurePaneClone(paneId, normalized);
+    }
+
+    final next = _addOrActivateInPane(current, paneId, normalized);
+    if (identical(next, current)) {
+      notifyListeners();
+      return;
+    }
+    _replaceWorkspaceSplit(workspace, next);
+
+    // Update workspace.selectedFilePath so sidebar / outline / sync follow.
+    final leaf = next.leaves.firstWhere((l) => l.paneId == paneId);
+    final index = _workspaces.indexOf(workspace);
+    if (index >= 0) {
+      _workspaces[index] = workspace.copyWith(
+        selectedFilePath: leaf.filePath,
+        split: next,
+      );
+    }
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Legacy alias kept for callers (e.g. drop-zone center drop) that semantically
+  /// mean "open this file in this pane" — now always pushes/activates a tab
+  /// rather than replacing the pane's only document.
+  Future<void> replacePaneDocument(String paneId, String filePath) =>
+      addToPaneDocument(paneId, filePath);
+
+  /// Removes the leaf [paneId] from the active workspace's split tree and
+  /// promotes its sibling subtree in place of the parent branch. Disposes the
+  /// clone that backed the removed leaf.
+  void unsplitPane(String paneId) {
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+    final current = workspace.split;
+    if (current == null) return;
+    if (!current.containsPane(paneId)) return;
+    final collapsed = current.collapseLeaf(paneId);
+    final removedPath = _leafPath(current, paneId);
+    _paneSessions.remove(paneId)?.dispose();
+    if (removedPath != null) _maybeDisposePrimary(removedPath, tree: collapsed);
+    _replaceWorkspaceSplit(workspace, collapsed);
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Tears down the entire split tree for the active workspace, disposing all
+  /// pane clones and any primary sessions that no longer have a tab strip
+  /// reference.
+  void unsplitAll() {
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+    final split = workspace.split;
+    if (split == null) return;
+    final paths = <String>{};
+    for (final leaf in split.leaves) {
+      paths.add(leaf.filePath);
+    }
+    for (final paneId in _paneSessions.keys.toList()) {
+      _paneSessions.remove(paneId)?.dispose();
+    }
+    for (final path in paths) {
+      _maybeDisposePrimary(path, tree: null);
+    }
+    final index = _workspaces.indexOf(workspace);
+    if (index >= 0) {
+      _workspaces[index] = workspace.copyWith(clearSplit: true);
+    }
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Nudges the split ratio of the branch containing [paneId] by [delta].
+  void adjustSplitRatio(String paneId, double delta) {
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+    final split = workspace.split;
+    if (split == null) return;
+    final parent = split.findParentBranch(paneId);
+    if (parent == null) return;
+    final next = (parent.ratio + delta).clamp(0.1, 0.9).toDouble();
+    if ((next - parent.ratio).abs() < 0.0001) return;
+    _replaceWorkspaceSplit(
+      workspace,
+      _updateBranchRatio(split, paneId, next),
+    );
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Sets the split ratio of the branch containing [paneId]. Ratios that
+  /// collapse past the edge auto-unsplit the smaller side.
+  void setSplitRatio(String paneId, double ratio) {
+    if (ratio < 0.15) {
+      unsplitPane(_siblingPaneIdOf(paneId));
+      return;
+    }
+    if (ratio > 0.85) {
+      unsplitPane(paneId);
+      return;
+    }
+    final clamped = ratio.clamp(0.1, 0.9).toDouble();
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+    final split = workspace.split;
+    if (split == null) return;
+    final parent = split.findParentBranch(paneId);
+    if (parent == null) return;
+    if ((parent.ratio - clamped).abs() < 0.0001) return;
+    _replaceWorkspaceSplit(
+      workspace,
+      _updateBranchRatio(split, paneId, clamped),
+    );
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  SplitNode _updateBranchRatio(SplitNode node, String paneId, double ratio) {
+    if (node is! SplitBranch) return node;
+    if (node.primary.containsPane(paneId)) {
+      final updated = _updateBranchRatio(node.primary, paneId, ratio);
+      return SplitBranch(
+        axis: node.axis,
+        primary: updated,
+        secondary: node.secondary,
+        ratio: ratio,
+      );
+    }
+    if (node.secondary.containsPane(paneId)) {
+      final updated = _updateBranchRatio(node.secondary, paneId, ratio);
+      return SplitBranch(
+        axis: node.axis,
+        primary: node.primary,
+        secondary: updated,
+        ratio: 1.0 - ratio,
+      );
+    }
+    return node;
+  }
+
+  String _siblingPaneIdOf(String paneId) {
+    final parent = activeWorkspace?.split?.findParentBranch(paneId);
+    if (parent == null) return paneId;
+    if (parent.primary.containsPane(paneId)) {
+      return parent.secondary.leaves.first.paneId;
+    }
+    return parent.primary.leaves.first.paneId;
+  }
+
+  String? _leafPath(SplitNode node, String paneId) {
+    for (final leaf in node.leaves) {
+      if (leaf.paneId == paneId) return leaf.filePath;
+    }
+    return null;
+  }
+
+  /// Returns a copy of [node] with [path] added to (or activated within) the
+  /// leaf identified by [paneId]. Returns the original node if no change was
+  /// needed (e.g. [path] is already the active tab in that pane).
+  SplitNode _addOrActivateInPane(SplitNode node, String paneId, String path) {
+    if (node is SplitLeaf) {
+      if (node.paneId != paneId) return node;
+      final existing = node.openPaths.indexOf(path);
+      if (existing >= 0) {
+        if (existing == node.activeIndex) return node;
+        return node.copyWith(activeIndex: existing);
+      }
+      final newPaths = [...node.openPaths, path];
+      return node.copyWith(
+        openPaths: newPaths,
+        activeIndex: newPaths.length - 1,
+      );
+    }
+    if (node is SplitBranch) {
+      if (node.primary.containsPane(paneId)) {
+        final updated = _addOrActivateInPane(node.primary, paneId, path);
+        if (!identical(updated, node.primary)) {
+          return SplitBranch(
+            axis: node.axis,
+            primary: updated,
+            secondary: node.secondary,
+            ratio: node.ratio,
+          );
+        }
+      }
+      if (node.secondary.containsPane(paneId)) {
+        final updated = _addOrActivateInPane(node.secondary, paneId, path);
+        if (!identical(updated, node.secondary)) {
+          return SplitBranch(
+            axis: node.axis,
+            primary: node.primary,
+            secondary: updated,
+            ratio: node.ratio,
+          );
+        }
+      }
+    }
+    return node;
+  }
+
+  /// Returns a copy of [node] with [paneId]'s activeIndex set to the position
+  /// of [path], or null if no change was needed.
+  SplitNode? _setActiveInPane(SplitNode node, String paneId, String path) {
+    if (node is SplitLeaf) {
+      if (node.paneId != paneId) return null;
+      final i = node.openPaths.indexOf(path);
+      if (i < 0 || i == node.activeIndex) return null;
+      return node.copyWith(activeIndex: i);
+    }
+    if (node is SplitBranch) {
+      final newPrimary = _setActiveInPane(node.primary, paneId, path);
+      if (newPrimary != null) {
+        return SplitBranch(
+          axis: node.axis,
+          primary: newPrimary,
+          secondary: node.secondary,
+          ratio: node.ratio,
+        );
+      }
+      final newSecondary = _setActiveInPane(node.secondary, paneId, path);
+      if (newSecondary != null) {
+        return SplitBranch(
+          axis: node.axis,
+          primary: node.primary,
+          secondary: newSecondary,
+          ratio: node.ratio,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Returns a copy of [node] with [path] removed from [paneId]'s openPaths.
+  /// Returns null if the pane doesn't contain [path]. If the resulting leaf
+  /// would be empty, the caller should unsplit instead.
+  SplitNode? _removePathFromPane(SplitNode node, String paneId, String path) {
+    if (node is SplitLeaf) {
+      if (node.paneId != paneId) return null;
+      final removedAt = node.openPaths.indexOf(path);
+      if (removedAt < 0) return null;
+      final newPaths = [...node.openPaths]..removeAt(removedAt);
+      var newActive = node.activeIndex;
+      if (removedAt == node.activeIndex) {
+        newActive = (removedAt - 1).clamp(0, newPaths.length - 1);
+      } else if (removedAt < node.activeIndex) {
+        newActive = node.activeIndex - 1;
+      }
+      return node.copyWith(openPaths: newPaths, activeIndex: newActive);
+    }
+    if (node is SplitBranch) {
+      final newPrimary = _removePathFromPane(node.primary, paneId, path);
+      if (newPrimary != null) {
+        return SplitBranch(
+          axis: node.axis,
+          primary: newPrimary,
+          secondary: node.secondary,
+          ratio: node.ratio,
+        );
+      }
+      final newSecondary = _removePathFromPane(node.secondary, paneId, path);
+      if (newSecondary != null) {
+        return SplitBranch(
+          axis: node.axis,
+          primary: node.primary,
+          secondary: newSecondary,
+          ratio: node.ratio,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Switches [paneId]'s active tab to [path]. No-op if the path isn't open in
+  /// this pane. Updates workspace.selectedFilePath so sidebar/outline follow.
+  /// In non-split mode, routes through [selectDocument] for compatibility.
+  void selectPaneTab(String paneId, String path) {
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+    if (workspace.split == null) {
+      selectDocument(path);
+      return;
+    }
+    final normalized = _normalize(path);
+    final updated = _setActiveInPane(workspace.split!, paneId, normalized);
+    if (updated == null) return;
+    final leaf = updated.leaves.firstWhere((l) => l.paneId == paneId);
+    final index = _workspaces.indexOf(workspace);
+    if (index >= 0) {
+      _workspaces[index] = workspace.copyWith(
+        selectedFilePath: leaf.filePath,
+        split: updated,
+      );
+    } else {
+      _replaceWorkspaceSplit(workspace, updated);
+    }
+    _activeHeadingAnchor = null;
+    _gitActiveDiff = null;
+    notifyListeners();
+    _scheduleSessionSave();
+    unawaited(revealPathInWorkspace(normalized));
+  }
+
+  /// Closes [path] within [paneId]. If the pane becomes empty, unsplits it.
+  /// Disposes the underlying session if no pane still references [path].
+  /// In non-split mode, routes through [closeDocument] for compatibility.
+  /// When [force] is false and the underlying session is dirty AND would be
+  /// disposed (no other pane references it), the close is a no-op — callers
+  /// should confirm with the user first.
+  void closePaneTab(String paneId, String path, {bool force = false}) {
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+    if (workspace.split == null) {
+      closeDocument(path, force: force);
+      return;
+    }
+    final current = workspace.split!;
+    final leaf = current.leaves.firstWhere(
+      (l) => l.paneId == paneId,
+      orElse: () => SplitLeaf(paneId: paneId, openPaths: const []),
+    );
+    if (!leaf.openPaths.contains(path)) return;
+    final normalized = _normalize(path);
+
+    if (leaf.openPaths.length == 1) {
+      // Pane becomes empty — unsplit it (handles session cleanup).
+      if (!force) {
+        final session = _sessions[normalized];
+        final stillReferenced = current.leaves.any(
+          (l) => l.paneId != paneId && l.openPaths.contains(normalized),
+        );
+        if (session?.document.isDirty == true && !stillReferenced) return;
+      }
+      unsplitPane(paneId);
+      return;
+    }
+
+    final updated = _removePathFromPane(current, paneId, normalized);
+    if (updated == null) return;
+    if (!force) {
+      final session = _sessions[normalized];
+      final stillReferenced = updated.leaves.any(
+        (l) => l.openPaths.contains(normalized),
+      );
+      if (session?.document.isDirty == true && !stillReferenced) return;
+    }
+    _maybeDisposePrimary(normalized, tree: updated);
+
+    final newActivePath = updated.leaves.firstWhere(
+      (l) => l.paneId == paneId,
+    ).filePath;
+    final index = _workspaces.indexOf(workspace);
+    if (index >= 0) {
+      _workspaces[index] = workspace.copyWith(
+        selectedFilePath: newActivePath,
+        split: updated,
+      );
+    } else {
+      _replaceWorkspaceSplit(workspace, updated);
+    }
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
+  /// Ensures a primary session exists for [filePath] (used by tab strip /
+  /// save / file-watch). Silently skips on binary / oversized / missing files.
+  Future<void> _ensurePrimarySession(String filePath) async {
+    final normalized = _normalize(filePath);
+    if (_sessions.containsKey(normalized)) return;
+    try {
+      final document = await _fileSystemService.readDocument(normalized);
+      _sessions[normalized] = _createSession(document);
+    } on BinaryFileException {
+      return;
+    } on FileTooLargeException {
+      return;
+    } on FileSystemException {
+      return;
+    }
+  }
+
+  /// Legacy clone-session factory. Per-pane clones were retired in favor of
+  /// sharing the primary session — every pane now reads `_sessions[leaf.filePath]`
+  /// directly via [paneSessionFor]. Kept as a no-op so callers (splitPane,
+  /// addToPaneDocument, _restoreSplitTree) don't need updating.
+  Future<void> _ensurePaneClone(String paneId, String filePath) async {}
+
+  /// Drops the primary session for [path] when no pane in [tree] (defaults to
+  /// the active workspace's current tree) and no workspace tab still needs it.
+  void _maybeDisposePrimary(String path, {SplitNode? tree}) {
+    final normalized = _normalize(path);
+    final treeToCheck = tree ?? activeWorkspace?.split;
+    final stillInTree = treeToCheck?.leaves.any(
+          (leaf) => leaf.openPaths.contains(normalized),
+        ) ??
+        false;
+    if (stillInTree) return;
+    final stillTabbed = _workspaces.any((ws) =>
+        (ws.split == null && ws.selectedFilePath == normalized) ||
+        (_workspaceDocuments[ws.id] ?? const []).contains(normalized));
+    if (stillTabbed) return;
+    _sessions.remove(normalized)?.dispose();
+  }
+
+  void _replaceWorkspaceSplit(WorkspaceItem workspace, SplitNode? next) {
+    final index = _workspaces.indexOf(workspace);
+    if (index < 0) return;
+    _workspaces[index] = next == null
+        ? workspace.copyWith(clearSplit: true)
+        : workspace.copyWith(split: next);
   }
 
   /// Propagates terminal layout changes and persists dock preferences.
@@ -1529,6 +2184,45 @@ class AppController extends ChangeNotifier {
       clearSelectedFilePath: selected == null,
     );
     _workspaces[_workspaces.length - 1] = workspace;
+
+    final splitValue = value['split'];
+    if (splitValue is Map<String, dynamic>) {
+      try {
+        final split = SplitNode.fromJson(splitValue);
+        await _restoreSplitTree(workspace, split);
+        final index = _workspaces.indexOf(workspace);
+        if (index >= 0) {
+          _workspaces[index] = workspace.copyWith(split: split);
+        }
+      } on FormatException {
+        // Stale / malformed split JSON — drop it and use the single-doc view.
+      }
+    }
+  }
+
+  Future<void> _restoreSplitTree(WorkspaceItem workspace, SplitNode node) async {
+    final leaves = node.leaves;
+    for (var i = 0; i < leaves.length; i++) {
+      final leaf = leaves[i];
+      // Ensure a session exists for every tab in this pane (not just the
+      // active one) so the user can switch tabs without re-reading the file.
+      for (final rawPath in leaf.openPaths) {
+        final normalized = _normalize(rawPath);
+        try {
+          await _ensurePrimarySession(normalized);
+        } on FileSystemException {
+          continue;
+        }
+        final documents = _workspaceDocuments[workspace.id] ??= [];
+        if (!documents.contains(normalized)) documents.add(normalized);
+      }
+      // Primary-most leaf (i == 0) reuses the primary session for its active
+      // document; every other leaf gets its own clone so cursors stay
+      // independent.
+      if (i > 0) {
+        await _ensurePaneClone(leaf.paneId, _normalize(leaf.filePath));
+      }
+    }
   }
 
   Future<void> _restoreDocument(WorkspaceItem workspace, String path) async {
@@ -1540,8 +2234,7 @@ class AppController extends ChangeNotifier {
     try {
       final session =
           _sessions[normalizedPath] ??
-          (EditorSession(await _fileSystemService.readDocument(normalizedPath))
-            ..addListener(_onSessionChanged));
+          _createSession(await _fileSystemService.readDocument(normalizedPath));
       _sessions[normalizedPath] = session;
       final documents = _workspaceDocuments[workspace.id] ??= [];
       if (!documents.contains(normalizedPath)) documents.add(normalizedPath);
@@ -1614,6 +2307,7 @@ class AppController extends ChangeNotifier {
             'type': workspace.type.name,
             'selectedFilePath': workspace.selectedFilePath,
             'documents': _workspaceDocuments[workspace.id] ?? const [],
+            if (workspace.split != null) 'split': workspace.split!.toJson(),
           },
         )
         .toList(growable: false);
@@ -1676,6 +2370,9 @@ class AppController extends ChangeNotifier {
     _sessionPersistTimer?.cancel();
     _watchSubscription.cancel();
     for (final session in _sessions.values) {
+      session.dispose();
+    }
+    for (final session in _paneSessions.values) {
       session.dispose();
     }
     _watchService.dispose();

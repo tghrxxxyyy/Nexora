@@ -9,11 +9,11 @@ import '../app_theme.dart';
 import '../models/terminal_layout.dart';
 import '../models/workspace_item.dart';
 import '../state/app_controller.dart';
+import '../state/editor_session.dart';
 import 'document_area.dart';
 import 'file_sidebar.dart';
 import 'git_panel.dart';
 import 'global_search_panel.dart';
-import 'outline_sidebar.dart';
 import 'status_bar.dart';
 import 'terminal_panel.dart';
 import 'ui_primitives.dart';
@@ -77,6 +77,10 @@ class _AppShellState extends State<AppShell> {
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
             controller.saveActiveDocument,
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
+            controller.undoActiveDocument,
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
+            controller.redoActiveDocument,
         const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
             controller.openFiles,
         const SingleActivator(LogicalKeyboardKey.keyO, meta: true, shift: true):
@@ -102,13 +106,6 @@ class _AppShellState extends State<AppShell> {
                     children: [
                       _WorkspaceHeader(controller: controller),
                       SignalDivider(),
-                      if (controller.activeWorkspace != null) ...[
-                        SizedBox(
-                          height: 43,
-                          child: DocumentToolbar(controller: controller),
-                        ),
-                        SignalDivider(),
-                      ],
                       Expanded(child: _buildWorkspaceWithTerminal()),
                       StatusBar(controller: controller),
                     ],
@@ -293,10 +290,8 @@ class _WorkspaceBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasWorkspace = controller.activeWorkspace != null;
     final showLeftContent = hasWorkspace && controller.showExplorerContent;
-    final showRightContent = hasWorkspace && controller.showOutline;
 
     final leftWidth = controller.leftSidebarWidth;
-    final rightWidth = controller.rightSidebarWidth;
     return Row(
       children: [
         AnimatedContainer(
@@ -344,25 +339,8 @@ class _WorkspaceBody extends StatelessWidget {
                 controller.setLeftSidebarWidth(leftWidth + delta),
             onDragEnd: controller.finalizeLeftSidebarWidth,
           ),
-        Expanded(child: DocumentArea(controller: controller)),
-        if (showRightContent)
-          _SidebarResizeHandle(
-            onDelta: (delta) =>
-                controller.setRightSidebarWidth(rightWidth - delta),
-          ),
-        ClipRect(
-          child: SizedBox(
-            width: showRightContent ? rightWidth : 0,
-            child: OverflowBox(
-              alignment: Alignment.topRight,
-              minWidth: rightWidth,
-              maxWidth: rightWidth,
-              child: SizedBox(
-                width: rightWidth,
-                child: OutlinePanel(controller: controller),
-              ),
-            ),
-          ),
+        Expanded(
+          child: DocumentArea(controller: controller),
         ),
       ],
     );
@@ -378,6 +356,11 @@ class _ActivityRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final workspace = controller.activeWorkspace;
+    final session = controller.activeSession;
+    final hasSession = session != null;
+    final isMarkdown = hasSession && session.document.isMarkdown;
+    final isHtml = hasSession && session.document.isHtml;
+    final showViewModes = isMarkdown || isHtml;
     return Container(
       color: AppColors.backgroundRaised,
       child: Column(
@@ -428,14 +411,76 @@ class _ActivityRail extends StatelessWidget {
             onPressed: controller.toggleTerminal,
           ),
           const Spacer(),
-          AppIconButton(
-            icon: Icons.tune_rounded,
-            tooltip: '设置',
-            size: 34,
-            iconSize: 17,
-            onPressed: onShowSettings,
-          ),
-          const SizedBox(height: 4),
+          if (showViewModes) ...[
+            AppIconButton(
+              icon: Icons.edit_outlined,
+              tooltip: '编辑',
+              selected:
+                  hasSession && session.viewMode == MarkdownViewMode.edit,
+              size: 34,
+              iconSize: 17,
+              onPressed: hasSession
+                  ? () => session.setViewMode(MarkdownViewMode.edit)
+                  : null,
+            ),
+            const SizedBox(height: 4),
+            AppIconButton(
+              icon: Icons.vertical_split_outlined,
+              tooltip: '分屏',
+              selected:
+                  hasSession && session.viewMode == MarkdownViewMode.split,
+              size: 34,
+              iconSize: 17,
+              onPressed: hasSession
+                  ? () => session.setViewMode(MarkdownViewMode.split)
+                  : null,
+            ),
+            const SizedBox(height: 4),
+            AppIconButton(
+              icon: Icons.visibility_outlined,
+              tooltip: '预览',
+              selected:
+                  hasSession && session.viewMode == MarkdownViewMode.preview,
+              size: 34,
+              iconSize: 17,
+              onPressed: hasSession
+                  ? () => session.setViewMode(MarkdownViewMode.preview)
+                  : null,
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (hasSession) ...[
+            AppIconButton(
+              icon: Icons.wrap_text_rounded,
+              tooltip: session.wordWrap ? '关闭自动换行' : '开启自动换行',
+              selected: session.wordWrap,
+              size: 34,
+              iconSize: 17,
+              onPressed: session.toggleWordWrap,
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (isMarkdown) ...[
+            AppIconButton(
+              icon: Icons.keyboard_double_arrow_right_rounded,
+              tooltip: controller.showOutline ? '收起目录' : '展开目录',
+              selected: controller.showOutline,
+              size: 34,
+              iconSize: 17,
+              onPressed: controller.toggleRightSidebar,
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (isHtml) ...[
+            AppIconButton(
+              icon: Icons.language_rounded,
+              tooltip: '在 Chrome 中打开',
+              size: 34,
+              iconSize: 17,
+              onPressed: controller.openActiveHtmlInChrome,
+            ),
+            const SizedBox(height: 4),
+          ],
           AppIconButton(
             icon: controller.showExplorerContent
                 ? Icons.keyboard_double_arrow_left_rounded
@@ -444,6 +489,14 @@ class _ActivityRail extends StatelessWidget {
             size: 34,
             iconSize: 17,
             onPressed: controller.toggleLeftSidebar,
+          ),
+          const SizedBox(height: 4),
+          AppIconButton(
+            icon: Icons.tune_rounded,
+            tooltip: '设置',
+            size: 34,
+            iconSize: 17,
+            onPressed: onShowSettings,
           ),
           const SizedBox(height: 7),
         ],

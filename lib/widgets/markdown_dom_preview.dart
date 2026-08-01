@@ -141,6 +141,13 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
         _pendingPreviewContent != null &&
         widget.content == _pendingPreviewContent;
     if (contentCameFromPreview) {
+      // The DOM already reflects the user's contenteditable edit — the
+      // markdown → HTML pipeline doesn't get to re-run on raw text edits,
+      // so markdown syntax (e.g. **bold**) stays literal until the document
+      // is reloaded. Re-rendering here would replace innerHTML on every
+      // keystroke and fight contenteditable for the caret, which manifests
+      // as the cursor jumping while typing. We accept the literal-text
+      // trade-off rather than racing the user's input.
       _pendingPreviewContent = null;
       unawaited(_updateHeadingAnchors());
     } else if (widget.themeId != oldWidget.themeId ||
@@ -308,7 +315,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     await _loadContent();
   }
 
-  Future<void> _replaceDocument() async {
+  Future<void> _replaceDocument({bool preserveCursor = false}) async {
     if (!_pageReady) {
       await _loadContent();
       return;
@@ -316,7 +323,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     final baseUrl = _resolveBaseUrl();
     await _runJavaScript(
       'window.nexoraReplaceDocument('
-      '${jsonEncode(_markdownHtml())}, ${jsonEncode(baseUrl)}'
+      '${jsonEncode(_markdownHtml())}, ${jsonEncode(baseUrl)}, ${preserveCursor}'
       ');',
     );
     await _updateHeadingAnchors();
@@ -2221,20 +2228,115 @@ window.nexoraAttachEditor = function() {
   });
 };
 
-window.nexoraReplaceDocument = function(html, baseHref) {
+window.nexoraReplaceDocument = function(html, baseHref, preserveCursor) {
   window.nexoraClearFind();
   var root = document.getElementById('nexora-document');
   if (!root) return;
   root.contentEditable = 'true';
+  var savedScroll = window.scrollY;
+  var savedContext = preserveCursor ? window.nexoraSaveSelectionContext() : null;
   root.innerHTML = html;
   var base = document.querySelector('base');
   if (base) base.href = baseHref;
-  window.scrollTo({ top: 0, behavior: 'instant' });
   window.nexoraAttachEditor();
   window.nexoraEnhanceAlerts();
   window.nexoraBuildToc();
   window.nexoraWrapImages();
   window.nexoraRenderMermaid();
+  if (preserveCursor) {
+    window.nexoraRestoreSelectionContext(savedContext);
+    window.scrollTo({ top: savedScroll, behavior: 'instant' });
+  } else {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+};
+
+// Captures the cursor as (blockIndex, offsetWithinBlock) so it can be
+// restored after the parent <main> does innerHTML replacement. Block index
+// is the cursor's closest-direct-child index of #nexora-document — this
+// survives re-render as long as the user's edit didn't add/remove a block.
+window.nexoraSaveSelectionContext = function() {
+  var root = document.getElementById('nexora-document');
+  if (!root) return null;
+  var selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  var range = selection.getRangeAt(0);
+  var cursorNode = range.startContainer;
+  if (!root.contains(cursorNode)) return null;
+  var block = cursorNode;
+  while (block && block.parentNode !== root) {
+    block = block.parentNode;
+  }
+  if (!block || block.parentNode !== root) return null;
+  var blockIndex = Array.prototype.indexOf.call(root.childNodes, block);
+  if (blockIndex < 0) return null;
+  var preRange = document.createRange();
+  preRange.selectNodeContents(block);
+  try {
+    preRange.setEnd(range.startContainer, range.startOffset);
+  } catch (_) {
+    return null;
+  }
+  return { blockIndex: blockIndex, offset: preRange.toString().length };
+};
+
+// Restores a context captured by nexoraSaveSelectionContext. Falls back to
+// the end of the same block (or end of document) when the exact offset no
+// longer maps to a text node — which happens when markdown formatting
+// changes the inline structure (e.g. ** → <strong>).
+window.nexoraRestoreSelectionContext = function(ctx) {
+  var root = document.getElementById('nexora-document');
+  if (!root || !ctx) return;
+  var block = root.childNodes[ctx.blockIndex];
+  if (!block) block = root.lastChild;
+  if (!block) return;
+  var filter = {
+    acceptNode: function(node) {
+      var parent = node.parentNode;
+      while (parent && parent !== block) {
+        if (parent.contentEditable === 'false') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        parent = parent.parentNode;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  };
+  var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, filter, null);
+  var current = 0;
+  var target = ctx.offset;
+  var lastNode = null;
+  var lastLen = 0;
+  while (walker.nextNode()) {
+    var textNode = walker.currentNode;
+    var len = (textNode.nodeValue || '').length;
+    lastNode = textNode;
+    lastLen = len;
+    if (current + len >= target) {
+      try {
+        var range = document.createRange();
+        range.setStart(textNode, target - current);
+        range.collapse(true);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (_) {}
+      root.focus({ preventScroll: true });
+      return;
+    }
+    current += len;
+  }
+  if (lastNode) {
+    try {
+      var endRange = document.createRange();
+      endRange.setStart(lastNode, lastLen);
+      endRange.collapse(true);
+      var endSel = window.getSelection();
+      endSel.removeAllRanges();
+      endSel.addRange(endRange);
+    } catch (_) {}
+    root.focus({ preventScroll: true });
+  }
 };
 
 window.nexoraClearFind = function() {
