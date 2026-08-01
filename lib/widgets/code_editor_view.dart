@@ -27,6 +27,7 @@ class CodeEditorView extends StatelessWidget {
     required this.controller,
     required this.findController,
     required this.onChanged,
+    required this.onSave,
     this.wordWrap = false,
     this.fontScale = 1,
     super.key,
@@ -36,6 +37,14 @@ class CodeEditorView extends StatelessWidget {
   final CodeLineEditingController controller;
   final CodeFindController findController;
   final ValueChanged<CodeLineEditingValue> onChanged;
+
+  /// Invoked when the user presses the editor's built-in save shortcut
+  /// (Cmd+S on macOS, Ctrl+S elsewhere). `re_editor` registers Cmd+S against
+  /// its own `CodeShortcutSaveIntent` and the inner `Shortcuts` widget
+  /// swallows the key event before our app-level `CallbackShortcuts` /
+  /// platform menu can see it, so we have to register an override action
+  /// that forwards back to the controller.
+  final VoidCallback onSave;
   final bool wordWrap;
   final double fontScale;
 
@@ -66,6 +75,14 @@ class CodeEditorView extends StatelessWidget {
         controller: controller,
         findController: findController,
         onChanged: onChanged,
+        shortcutOverrideActions: {
+          CodeShortcutSaveIntent: CallbackAction<CodeShortcutSaveIntent>(
+            onInvoke: (_) {
+              onSave();
+              return null;
+            },
+          ),
+        },
         wordWrap: wordWrap,
         autofocus: true,
         padding: const EdgeInsets.fromLTRB(12, 14, 12, 28),

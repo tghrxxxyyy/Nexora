@@ -88,6 +88,7 @@ class PaneView extends StatelessWidget {
       wordWrap: session.wordWrap,
       fontScale: controller.fontScale,
       onChanged: (_) {},
+      onSave: controller.saveActiveDocument,
     );
   }
 
