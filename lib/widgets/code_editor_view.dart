@@ -21,11 +21,13 @@ import 'editor_context_menu.dart';
 import 'editor_find_panel.dart';
 import 'ui_primitives.dart';
 
-class CodeEditorView extends StatelessWidget {
+class CodeEditorView extends StatefulWidget {
   const CodeEditorView({
     required this.path,
     required this.controller,
     required this.findController,
+    required this.scrollController,
+    required this.initialScrollOffset,
     required this.onChanged,
     required this.onSave,
     this.wordWrap = false,
@@ -36,6 +38,11 @@ class CodeEditorView extends StatelessWidget {
   final String path;
   final CodeLineEditingController controller;
   final CodeFindController findController;
+  final CodeScrollController scrollController;
+
+  /// Scroll position to restore after the editor (re)mounts. Fed from the
+  /// session so switching back to a document lands where the reader left off.
+  final double initialScrollOffset;
   final ValueChanged<CodeLineEditingValue> onChanged;
 
   /// Invoked when the user presses the editor's built-in save shortcut
@@ -49,10 +56,48 @@ class CodeEditorView extends StatelessWidget {
   final double fontScale;
 
   @override
+  State<CodeEditorView> createState() => _CodeEditorViewState();
+}
+
+class _CodeEditorViewState extends State<CodeEditorView> {
+  @override
+  void initState() {
+    super.initState();
+    _restoreScroll();
+  }
+
+  @override
+  void didUpdateWidget(CodeEditorView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.path != widget.path ||
+        oldWidget.initialScrollOffset != widget.initialScrollOffset) {
+      _restoreScroll();
+    }
+  }
+
+  /// Restores the session's saved scroll offset after the editor mounts. The
+  /// editor rebuilds with a fresh ScrollPosition whenever `CodeEditor`'s key
+  /// (path) changes, so we jump back to the saved offset on the first frame —
+  /// retrying once in case the scroller hasn't attached yet.
+  void _restoreScroll([int attempt = 0]) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.initialScrollOffset <= 0) return;
+      final scroller = widget.scrollController.verticalScroller;
+      if (!scroller.hasClients) {
+        if (attempt < 1) _restoreScroll(attempt + 1);
+        return;
+      }
+      try {
+        scroller.jumpTo(widget.initialScrollOffset);
+      } catch (_) {}
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final mode = _languageMode(path);
-    final languageName = _languageName(path);
-    final commentFormatter = _commentFormatter(path);
+    final mode = _languageMode(widget.path);
+    final languageName = _languageName(widget.path);
+    final commentFormatter = _commentFormatter(widget.path);
     final editorTheme = <String, TextStyle>{
       ...nightOwlTheme,
       'root': TextStyle(color: AppColors.text),
@@ -71,25 +116,26 @@ class CodeEditorView extends StatelessWidget {
     return ColoredBox(
       color: AppColors.backgroundRaised,
       child: CodeEditor(
-        key: ValueKey(path),
-        controller: controller,
-        findController: findController,
-        onChanged: onChanged,
+        key: ValueKey(widget.path),
+        controller: widget.controller,
+        scrollController: widget.scrollController,
+        findController: widget.findController,
+        onChanged: widget.onChanged,
         shortcutOverrideActions: {
           CodeShortcutSaveIntent: CallbackAction<CodeShortcutSaveIntent>(
             onInvoke: (_) {
-              onSave();
+              widget.onSave();
               return null;
             },
           ),
         },
-        wordWrap: wordWrap,
+        wordWrap: widget.wordWrap,
         autofocus: true,
         padding: const EdgeInsets.fromLTRB(12, 14, 12, 28),
         style: CodeEditorStyle(
           fontFamily: 'MapleMonoCN',
           fontFamilyFallback: const ['monospace'],
-          fontSize: 13.5 * fontScale,
+          fontSize: 13.5 * widget.fontScale,
           fontHeight: 1.62,
           textColor: AppColors.text,
           backgroundColor: AppColors.backgroundRaised,
@@ -118,13 +164,13 @@ class CodeEditorView extends StatelessWidget {
                       notifier: notifier,
                       textStyle: TextStyle(
                         color: AppColors.textDim,
-                        fontSize: 11.5 * fontScale,
+                        fontSize: 11.5 * widget.fontScale,
                         fontFamily: 'MapleMonoCN',
                         height: 1.62,
                       ),
                       focusedTextStyle: TextStyle(
                         color: AppColors.signal,
-                        fontSize: 11.5 * fontScale,
+                        fontSize: 11.5 * widget.fontScale,
                         fontFamily: 'MapleMonoCN',
                         height: 1.62,
                       ),

@@ -28,6 +28,8 @@ class MarkdownDomPreview extends StatefulWidget {
     required this.themeMode,
     required this.themeId,
     required this.fontScale,
+    this.scrollOffset = 0,
+    this.onScrollPersist,
     this.onContentChanged,
     this.onOpenLocalPath,
     this.onOpenAnchor,
@@ -44,6 +46,18 @@ class MarkdownDomPreview extends StatefulWidget {
   final AppThemeMode themeMode;
   final String themeId;
   final double fontScale;
+
+  /// Restore value applied after this document's DOM is (re)rendered. Fed from
+  /// the owning session's saved scroll so switching back to a document lands
+  /// where the reader left off.
+  final double scrollOffset;
+
+  /// Called right before this widget swaps the DOM to another document (or
+  /// tears the WebView down for a theme refresh) so the outgoing document's
+  /// scroll position can be persisted against its own session — keyed by
+  /// [path], never the currently mounted session.
+  final void Function(String path, double y)? onScrollPersist;
+
   final ValueChanged<String>? onContentChanged;
   final ValueChanged<String>? onOpenLocalPath;
   final ValueChanged<String>? onOpenAnchor;
@@ -60,6 +74,11 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   String? _pendingAnchor;
   String? _mermaidScript;
   int _observedFocusRequestId = 0;
+
+  /// Path of the document currently rendered inside the WebView. Tracks the
+  /// outgoing document right before the DOM is swapped, so we can read its
+  /// `window.scrollY` and persist it to the right session.
+  String? _currentPath;
 
   static const _appearanceChannel =
       MethodChannel('com.xuyu.nexora/webview_appearance');
@@ -81,6 +100,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     _observedCaseSensitive = widget.findController.caseSensitive;
     _observedFindQuery = widget.findController.query;
     _pendingAnchor = widget.previewAnchor;
+    _currentPath = widget.path;
     widget.findController.addListener(_handleFindChanged);
     _initializeWebView();
   }
@@ -311,7 +331,26 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     }
   }
 
+  /// Persists the currently rendered document's `window.scrollY` to its own
+  /// session before the DOM is swapped out or the WebView is torn down. Reads
+  /// [path]-keyed (not the mounted widget's path) so the value lands on the
+  /// outgoing document's session.
+  Future<void> _persistCurrentScroll() async {
+    final outgoingPath = _currentPath;
+    if (!_pageReady || outgoingPath == null) return;
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(
+        'window.scrollY',
+      );
+      final value = double.tryParse('$raw');
+      if (value != null && value > 0) {
+        widget.onScrollPersist?.call(outgoingPath, value);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _refreshThemedDocument() async {
+    await _persistCurrentScroll();
     await _loadContent();
   }
 
@@ -320,10 +359,13 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       await _loadContent();
       return;
     }
+    await _persistCurrentScroll();
+    _currentPath = widget.path;
     final baseUrl = _resolveBaseUrl();
     await _runJavaScript(
       'window.nexoraReplaceDocument('
-      '${jsonEncode(_markdownHtml())}, ${jsonEncode(baseUrl)}, ${preserveCursor}'
+      '${jsonEncode(_markdownHtml())}, ${jsonEncode(baseUrl)}, ${preserveCursor}, '
+      '${widget.scrollOffset}'
       ');',
     );
     await _updateHeadingAnchors();
@@ -343,6 +385,8 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     _pendingAnchor = null;
     if (anchor != null && anchor.isNotEmpty) {
       await _runJavaScript('window.nexoraScrollTo(${jsonEncode(anchor)});');
+    } else if (widget.scrollOffset > 0) {
+      await _runJavaScript('window.nexoraSetScrollY(${widget.scrollOffset});');
     }
     await _syncFind(force: true);
   }
@@ -1857,6 +1901,9 @@ window.nexoraReady = function() {
 window.nexoraSetFontScale = function(value) {
   document.documentElement.style.setProperty('--nexora-font-scale', value);
 };
+window.nexoraSetScrollY = function(y) {
+  window.scrollTo({ top: y, behavior: 'instant' });
+};
 window.nexoraMatches = [];
 window.nexoraInputTimer = null;
 window.nexoraSelectionTimer = null;
@@ -2228,7 +2275,7 @@ window.nexoraAttachEditor = function() {
   });
 };
 
-window.nexoraReplaceDocument = function(html, baseHref, preserveCursor) {
+window.nexoraReplaceDocument = function(html, baseHref, preserveCursor, restoreY) {
   window.nexoraClearFind();
   var root = document.getElementById('nexora-document');
   if (!root) return;
@@ -2246,6 +2293,8 @@ window.nexoraReplaceDocument = function(html, baseHref, preserveCursor) {
   if (preserveCursor) {
     window.nexoraRestoreSelectionContext(savedContext);
     window.scrollTo({ top: savedScroll, behavior: 'instant' });
+  } else if (typeof restoreY === 'number' && restoreY > 0) {
+    window.scrollTo({ top: restoreY, behavior: 'instant' });
   } else {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }

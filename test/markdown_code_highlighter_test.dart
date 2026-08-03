@@ -27,11 +27,11 @@ void main() {
 
   test('keeps an unsupported fence language visible and round-trippable', () {
     final html = MarkdownCodeHighlighter().decorate(
-      '<pre><code class="language-cpp">std::vector&lt;int&gt; values;</code></pre>',
+      '<pre><code class="language-foobar">std::vector&lt;int&gt; values;</code></pre>',
     );
 
-    expect(html, contains('data-nexora-language="cpp"'));
-    expect(html, contains('>cpp</span>'));
+    expect(html, contains('data-nexora-language="foobar"'));
+    expect(html, contains('>foobar</span>'));
     expect(html, contains('std::vector&lt;int&gt; values;'));
   });
 }

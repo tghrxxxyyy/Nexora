@@ -85,6 +85,8 @@ class PaneView extends StatelessWidget {
       path: session.document.path,
       controller: session.editorController,
       findController: session.findController,
+      scrollController: session.scrollController,
+      initialScrollOffset: session.editorScrollOffset,
       wordWrap: session.wordWrap,
       fontScale: controller.fontScale,
       onChanged: (_) {},
@@ -137,6 +139,15 @@ class PaneView extends StatelessWidget {
       themeMode: controller.themeMode,
       themeId: controller.currentThemeId,
       fontScale: controller.fontScale,
+      scrollOffset: session.previewScrollOffset,
+      // Persist by path, not by captured session — the scroll sync is async and
+      // by the time it lands the mounted session may have switched to another
+      // document. Resolving the session by path keeps the value on the right
+      // document.
+      onScrollPersist: (path, y) {
+        final target = controller.sessions[path];
+        if (target != null) target.setPreviewScrollOffset(y);
+      },
       onContentChanged: session.replaceContentFromPreview,
       onOpenLocalPath: controller.openPath,
       onOpenAnchor: (anchor) {

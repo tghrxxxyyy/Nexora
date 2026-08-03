@@ -16,6 +16,7 @@ class EditorSession extends ChangeNotifier {
        editorController = CodeLineEditingController.fromText(document.content) {
     findController = CodeFindController(editorController);
     previewFindController = PreviewFindController();
+    scrollController.verticalScroller.addListener(_onEditorScroll);
     _headings = document.isMarkdown
         ? _outlineService.extract(document.content)
         : const [];
@@ -25,6 +26,7 @@ class EditorSession extends ChangeNotifier {
   DocumentModel _document;
   final MarkdownOutlineService _outlineService;
   final CodeLineEditingController editorController;
+  final CodeScrollController scrollController = CodeScrollController();
   late final CodeFindController findController;
   late final PreviewFindController previewFindController;
   late List<MarkdownHeading> _headings;
@@ -35,6 +37,8 @@ class EditorSession extends ChangeNotifier {
   MarkdownViewMode _viewMode = MarkdownViewMode.preview;
   String? _previewAnchor;
   int _previewJumpId = 0;
+  double _previewScrollOffset = 0;
+  double _editorScrollOffset = 0;
 
   DocumentModel get document => _document;
   List<MarkdownHeading> get headings => _headings;
@@ -44,6 +48,17 @@ class EditorSession extends ChangeNotifier {
   MarkdownViewMode get viewMode => _viewMode;
   String? get previewAnchor => _previewAnchor;
   int get previewJumpId => _previewJumpId;
+  double get previewScrollOffset => _previewScrollOffset;
+  double get editorScrollOffset => _editorScrollOffset;
+
+  /// Purely bookkeeping — deliberately does NOT notify: scroll offset doesn't
+  /// drive any rebuild (pane rebuilds are driven by the controller), and every
+  /// session notification cascades into a full app rebuild via
+  /// `AppController._createSession`.
+  void setPreviewScrollOffset(double value) {
+    if (_previewScrollOffset == value) return;
+    _previewScrollOffset = value;
+  }
 
   void setViewMode(MarkdownViewMode mode) {
     if (_viewMode == mode) return;
@@ -167,9 +182,18 @@ class EditorSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _onEditorScroll() {
+    final scroller = scrollController.verticalScroller;
+    if (!scroller.hasClients) return;
+    _editorScrollOffset = scroller.offset;
+  }
+
   @override
   void dispose() {
     editorController.removeListener(_onEditorChanged);
+    scrollController.verticalScroller.removeListener(_onEditorScroll);
+    scrollController.verticalScroller.dispose();
+    scrollController.dispose();
     findController.dispose();
     previewFindController.dispose();
     editorController.dispose();
