@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:re_editor/re_editor.dart';
 import 'package:xterm/xterm.dart';
 
 import '../app_theme.dart';
@@ -11,9 +12,11 @@ import '../models/workspace_item.dart';
 import '../state/app_controller.dart';
 import '../state/editor_session.dart';
 import 'document_area.dart';
+import 'editor_find_panel.dart';
 import 'file_sidebar.dart';
 import 'git_panel.dart';
 import 'global_search_panel.dart';
+import 'preview_find_panel.dart';
 import 'status_bar.dart';
 import 'terminal_panel.dart';
 import 'ui_primitives.dart';
@@ -54,13 +57,74 @@ class _AppShellState extends State<AppShell> {
       controller.closeCurrentFileFind();
       return true;
     }
-    if (!HardwareKeyboard.instance.isMetaPressed) return false;
-    if (HardwareKeyboard.instance.isShiftPressed) return false;
-    if (event.logicalKey == LogicalKeyboardKey.keyF) {
+
+    final isCmd = HardwareKeyboard.instance.isMetaPressed;
+    final isCtrl = HardwareKeyboard.instance.isControlPressed;
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+    final key = event.logicalKey;
+
+    // Ctrl-based editing shortcuts. re_editor only binds Cmd on macOS, so a
+    // physical Ctrl+C/V/... does nothing there; on Linux/Windows consuming the
+    // event here is equivalent to re_editor's own Ctrl bindings. Only fire when
+    // focus is inside a CodeEditor — never in a find panel, where the input
+    // TextField needs Ctrl+C/V for its own content.
+    if (isCtrl && !isCmd) {
+      final editor = _focusedEditor;
+      if (editor != null) {
+        if (!isShift && key == LogicalKeyboardKey.keyC) {
+          editor.copy();
+          return true;
+        }
+        if (!isShift && key == LogicalKeyboardKey.keyV) {
+          editor.paste();
+          return true;
+        }
+        if (!isShift && key == LogicalKeyboardKey.keyX) {
+          editor.cut();
+          return true;
+        }
+        if (!isShift && key == LogicalKeyboardKey.keyA) {
+          editor.selectAll();
+          return true;
+        }
+        if (!isShift && key == LogicalKeyboardKey.keyZ) {
+          editor.undo();
+          return true;
+        }
+        if (isShift && key == LogicalKeyboardKey.keyZ) {
+          editor.redo();
+          return true;
+        }
+        if (!isShift && key == LogicalKeyboardKey.keyY) {
+          editor.redo();
+          return true;
+        }
+      }
+    }
+
+    // Cmd+F on macOS, Ctrl+F elsewhere (and on macOS for users coming from
+    // other platforms) — both open find-in-file. Shift still routes to global
+    // search via the CallbackShortcuts binding below.
+    if ((isCmd || isCtrl) && !isShift && key == LogicalKeyboardKey.keyF) {
       controller.openCurrentFileFind();
       return true;
     }
     return false;
+  }
+
+  /// The editing controller of the focused [CodeEditor], or null when focus is
+  /// not inside one (including find panels, whose TextFields own the focus).
+  CodeLineEditingController? get _focusedEditor {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext == null) return null;
+    if (focusContext.findAncestorWidgetOfExactType<EditorFindPanel>() != null) {
+      return null;
+    }
+    if (focusContext.findAncestorWidgetOfExactType<PreviewFindPanel>() !=
+        null) {
+      return null;
+    }
+    return focusContext.findAncestorWidgetOfExactType<CodeEditor>()?.controller;
   }
 
   /// Returns whether direct keyboard input currently belongs to a terminal.
@@ -325,8 +389,12 @@ class _WorkspaceBody extends StatelessWidget {
                 child: SizedBox(
                   width: leftWidth,
                   child: switch (controller.explorerView) {
-                    ExplorerView.files => FileExplorerPanel(controller: controller),
-                    ExplorerView.search => GlobalSearchPanel(controller: controller),
+                    ExplorerView.files => FileExplorerPanel(
+                      controller: controller,
+                    ),
+                    ExplorerView.search => GlobalSearchPanel(
+                      controller: controller,
+                    ),
                     ExplorerView.git => GitPanel(controller: controller),
                   },
                 ),
@@ -339,9 +407,7 @@ class _WorkspaceBody extends StatelessWidget {
                 controller.setLeftSidebarWidth(leftWidth + delta),
             onDragEnd: controller.finalizeLeftSidebarWidth,
           ),
-        Expanded(
-          child: DocumentArea(controller: controller),
-        ),
+        Expanded(child: DocumentArea(controller: controller)),
       ],
     );
   }
@@ -415,8 +481,7 @@ class _ActivityRail extends StatelessWidget {
             AppIconButton(
               icon: Icons.edit_outlined,
               tooltip: '编辑',
-              selected:
-                  hasSession && session.viewMode == MarkdownViewMode.edit,
+              selected: hasSession && session.viewMode == MarkdownViewMode.edit,
               size: 34,
               iconSize: 17,
               onPressed: hasSession
@@ -517,11 +582,9 @@ class _WorkspaceHeader extends StatelessWidget {
     // belongs to the app, so we show the brand from the very left edge.
     // Windowed, the 70 px slot is reserved for the system traffic lights
     // and the workspace tabs take over from there.
-    final leftPad = Platform.isMacOS
-        ? (fullscreen ? 12.0 : 70.0)
-        : 12.0;
+    final leftPad = Platform.isMacOS ? (fullscreen ? 12.0 : 70.0) : 12.0;
     return Container(
-      height: 54,
+      height: 48,
       color: AppColors.backgroundRaised,
       padding: EdgeInsets.only(left: leftPad, right: 10),
       child: Row(
@@ -554,7 +617,7 @@ class _WorkspaceHeader extends StatelessWidget {
                 ? const SizedBox.shrink()
                 : ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
                     itemCount: controller.workspaces.length,
                     separatorBuilder: (context, index) =>
                         const SizedBox(width: 5),
@@ -672,60 +735,74 @@ class _WorkspaceTabState extends State<_WorkspaceTab> {
         child: AnimatedContainer(
           duration: AppMotion.quick,
           width: 168,
-          height: 36,
-          padding: const EdgeInsets.fromLTRB(9, 0, 4, 0),
+          height: 40,
           decoration: BoxDecoration(
-            color: widget.selected
-                ? AppColors.signal.withValues(alpha: 0.085)
-                : _hovered
+            color: _hovered
                 ? AppColors.signal.withValues(alpha: 0.032)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(5),
           ),
           child: Row(
             children: [
-              Icon(
-                widget.workspace.isDirectory
-                    ? Icons.folder_outlined
-                    : Icons.description_outlined,
-                size: 15,
-                color: widget.selected ? AppColors.signal : AppColors.textDim,
-              ),
-              const SizedBox(width: 7),
+              // 与右侧关闭按钮槽位等宽，让图标+文字整体在 tab 内居中。
+              const SizedBox(width: 28),
               Expanded(
-                child: Text(
-                  widget.workspace.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: widget.selected
-                        ? AppColors.text
-                        : AppColors.textMuted,
-                    fontSize: 11,
-                    fontWeight: widget.selected
-                        ? FontWeight.w600
-                        : FontWeight.w400,
-                  ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      widget.workspace.isDirectory
+                          ? Icons.folder_outlined
+                          : Icons.description_outlined,
+                      size: 15,
+                      color: widget.selected
+                          ? AppColors.signal
+                          : AppColors.textDim,
+                    ),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        widget.workspace.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: widget.selected
+                              ? AppColors.text
+                              : AppColors.textMuted,
+                          fontSize: 11,
+                          fontWeight: widget.selected
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              if (widget.dirty && !_hovered)
-                Container(
-                  width: 6,
-                  height: 6,
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.amber,
-                    shape: BoxShape.circle,
-                  ),
-                )
-              else
-                AppIconButton(
-                  icon: Icons.close_rounded,
-                  tooltip: '关闭工作区',
-                  size: 24,
-                  iconSize: 12,
-                  onPressed: widget.onClose,
-                ),
+              SizedBox(
+                width: 28,
+                child: widget.dirty && !_hovered
+                    ? Center(
+                        child: Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: AppColors.amber,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      )
+                    : Center(
+                        child: AppIconButton(
+                          icon: Icons.close_rounded,
+                          tooltip: '关闭工作区',
+                          selected: widget.selected,
+                          size: 24,
+                          iconSize: 12,
+                          onPressed: widget.onClose,
+                        ),
+                      ),
+              ),
             ],
           ),
         ),

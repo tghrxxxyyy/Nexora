@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tghrxxxyyy/Nexora/releases"><img src="https://img.shields.io/badge/release-2.0.0-%233B82F6?style=flat-square" alt="release 2.0.0"></a>
+  <a href="https://github.com/tghrxxxyyy/Nexora/releases"><img src="https://img.shields.io/badge/release-3.0.0-%233B82F6?style=flat-square" alt="release 3.0.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-%233B82F6?style=flat-square" alt="license"></a>
   <a href="#"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-%233B82F6?style=flat-square" alt="platform"></a>
   <a href="#"><img src="https://img.shields.io/badge/flutter-%5E3.12-%233B82F6?style=flat-square" alt="flutter"></a>
@@ -33,7 +33,7 @@ Markdown 是当前的重点体验：默认以预览方式打开，支持在预�
 - **多工作区与多文档**：同时打开多个文件夹或独立文件，在顶部标签间快速切换。
 - **文件树**：文件夹层级浏览、过滤、单链目录压缩展示，以及按文件类型区分的图标。
 - **Material Icon Theme 图标**：内置 150+ 种文件类型 SVG 矢量图标（来自 Material Icon Theme，MIT 协议），文件夹配色跟随当前主题；可在「Material Icon Theme」与「Material（内置）」两套图标主题间切换。
-- **Markdown 工作流**：预览、源码和分栏三种视图；预览区域支持直接编辑、复制、目录跳转、查找高亮与图片点击预览；内嵌 Mermaid 图表渲染，并可在预览中直接编辑源码。
+- **Markdown 工作流**：预览、源码和分栏三种视图；分栏模式下编辑器与预览双向滚动同步、分割线可拖动调宽，且每个文档各自记忆比例；预览区域支持直接编辑、复制、目录跳转、查找高亮与图片点击预览；内嵌 Mermaid 图表渲染，并可在预览中直接编辑源码。
 - **HTML 预览**：在应用内预览本地 HTML，并支持使用 Chrome 打开。
 - **代码编辑**：面向 Markdown、JSON、YAML、Java、Python、TypeScript、JavaScript、HTML、CSS、SQL、Shell 等格式的文本编辑与语法高亮。
 - **Git 集成**：侧栏内置 Git 面板，展示当前分支、最近提交记录与已修改文件清单；点击任意文件展开 VS Code 风格的分屏 Diff 视图，左右两侧对齐显示删除与新增行，行号与状态徽章一目了然。
@@ -62,12 +62,16 @@ Markdown 是当前的重点体验：默认以预览方式打开，支持在预�
 | `Command + O` | 打开文件 |
 | `Command + Shift + O` | 打开文件夹 |
 | `Command + S` | 保存当前文件 |
-| `Command + F` | 查找当前文件或 Markdown 预览内容 |
+| `Command + F` | 查找当前文件或 Markdown 预览内容（`Ctrl + F` 同样可用） |
 | `Command + Shift + F` | 全局查找 |
 | `Command + Shift + H` | 全局替换 |
 | `Command + B` | 折叠或展开文件侧栏 |
+| `Command/Ctrl + C / V / X` | 编辑器内复制 / 粘贴 / 剪切 |
+| `Command/Ctrl + A` | 编辑器内全选 |
+| `Command/Ctrl + Z`、`Command/Ctrl + Shift + Z`、`Ctrl + Y` | 编辑器内撤销 / 重做 |
+| `Enter` | 查找或替换输入框中确认（下一个匹配 / 替换当前项） |
 
-Windows 和 Linux 使用 `Ctrl` 替代 `Command`。
+Windows 和 Linux 使用 `Ctrl` 替代 `Command`；macOS 下编辑器的复制、粘贴等快捷键同样支持物理 `Ctrl` 组合键。
 
 ## 开始使用
 
@@ -93,7 +97,7 @@ flutter run -d macos
 
 ## 构建发布
 
-macOS 的 Release 配置固定为 **ARM64**，面向 Apple Silicon 设备发布。每次发布前，请先在 `pubspec.yaml` 更新 `version`，例如当前版本 `2.0.0+36`；前半段用于显示版本，`+` 后的数字为构建号。
+macOS 的 Release 配置固定为 **ARM64**，面向 Apple Silicon 设备发布。每次发布前，请先在 `pubspec.yaml` 更新 `version`，例如当前版本 `3.0.0+37`；前半段用于显示版本，`+` 后的数字为构建号。
 
 ### 构建各平台
 
@@ -123,7 +127,7 @@ flutter clean
 flutter pub get
 flutter build macos --release
 
-RELEASE_VERSION="2.0.0"
+RELEASE_VERSION="3.0.0"
 RELEASE_APP="build/macos/Build/Products/Release/Nexora.app"
 RELEASE_DMG="dist/Nexora-${RELEASE_VERSION}-macos-arm64.dmg"
 

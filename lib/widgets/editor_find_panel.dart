@@ -67,6 +67,7 @@ class EditorFindPanel extends StatelessWidget implements PreferredSizeWidget {
                       controller: controller.findInputController,
                       focusNode: controller.findInputFocusNode,
                       textAlignVertical: TextAlignVertical.center,
+                      onSubmitted: (_) => controller.nextMatch(),
                       style: const TextStyle(fontSize: 12),
                       decoration: const InputDecoration(
                         hintText: '查找',
@@ -134,6 +135,9 @@ class EditorFindPanel extends StatelessWidget implements PreferredSizeWidget {
                         controller: controller.replaceInputController,
                         focusNode: controller.replaceInputFocusNode,
                         textAlignVertical: TextAlignVertical.center,
+                        onSubmitted: readOnly || result == null
+                            ? null
+                            : (_) => controller.replaceMatch(),
                         style: const TextStyle(fontSize: 12),
                         decoration: const InputDecoration(
                           hintText: '替换为',
