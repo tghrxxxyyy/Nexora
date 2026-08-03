@@ -39,6 +39,7 @@ class EditorSession extends ChangeNotifier {
   int _previewJumpId = 0;
   double _previewScrollOffset = 0;
   double _editorScrollOffset = 0;
+  double _splitRatio = 0.52;
 
   DocumentModel get document => _document;
   List<MarkdownHeading> get headings => _headings;
@@ -50,6 +51,7 @@ class EditorSession extends ChangeNotifier {
   int get previewJumpId => _previewJumpId;
   double get previewScrollOffset => _previewScrollOffset;
   double get editorScrollOffset => _editorScrollOffset;
+  double get splitRatio => _splitRatio;
 
   /// Purely bookkeeping — deliberately does NOT notify: scroll offset doesn't
   /// drive any rebuild (pane rebuilds are driven by the controller), and every
@@ -58,6 +60,14 @@ class EditorSession extends ChangeNotifier {
   void setPreviewScrollOffset(double value) {
     if (_previewScrollOffset == value) return;
     _previewScrollOffset = value;
+  }
+
+  /// Purely bookkeeping — deliberately does NOT notify (same rationale as
+  /// [setPreviewScrollOffset]): the split pane's local state drives the
+  /// rebuild, and the value here only survives so each document remembers its
+  /// own split ratio across mode switches.
+  void setSplitRatio(double value) {
+    _splitRatio = value.clamp(0.25, 0.75).toDouble();
   }
 
   void setViewMode(MarkdownViewMode mode) {
@@ -125,18 +135,15 @@ class EditorSession extends ChangeNotifier {
     final lineCount = editorController.codeLines.length;
     if (lineCount > 0) {
       final baseIndex = previousSelection.baseIndex.clamp(0, lineCount - 1);
-      final extentIndex =
-          previousSelection.extentIndex.clamp(0, lineCount - 1);
+      final extentIndex = previousSelection.extentIndex.clamp(0, lineCount - 1);
       final baseLineLength = editorController.codeLines[baseIndex].text.length;
       final extentLineLength =
           editorController.codeLines[extentIndex].text.length;
       editorController.selection = CodeLineSelection(
         baseIndex: baseIndex,
-        baseOffset:
-            previousSelection.baseOffset.clamp(0, baseLineLength),
+        baseOffset: previousSelection.baseOffset.clamp(0, baseLineLength),
         extentIndex: extentIndex,
-        extentOffset:
-            previousSelection.extentOffset.clamp(0, extentLineLength),
+        extentOffset: previousSelection.extentOffset.clamp(0, extentLineLength),
         baseAffinity: previousSelection.baseAffinity,
         extentAffinity: previousSelection.extentAffinity,
       );

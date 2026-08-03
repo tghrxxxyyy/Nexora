@@ -35,6 +35,8 @@ class SettingsDialog extends StatelessWidget {
                     _buildIconThemeSection(context),
                     const SizedBox(height: 22),
                     _buildFontSection(percent),
+                    const SizedBox(height: 22),
+                    _buildHoverSection(context),
                     const SizedBox(height: 20),
                   ],
                 ),
@@ -150,6 +152,70 @@ class SettingsDialog extends StatelessWidget {
                 onTap: () => controller.setIconTheme(theme.id),
               ),
           ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHoverSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.touch_app_outlined,
+              size: 17,
+              color: AppColors.textMuted,
+            ),
+            const SizedBox(width: 9),
+            Text(
+              '文件树悬停效果',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SegmentedButton<FileTreeHoverMode>(
+          segments: const [
+            ButtonSegment(
+              value: FileTreeHoverMode.highlight,
+              icon: Icon(Icons.highlight_alt_rounded, size: 15),
+              label: Text('高亮'),
+            ),
+            ButtonSegment(
+              value: FileTreeHoverMode.scale,
+              icon: Icon(Icons.zoom_in_rounded, size: 15),
+              label: Text('放大凸出'),
+            ),
+          ],
+          selected: {controller.fileTreeHoverMode},
+          showSelectedIcon: false,
+          onSelectionChanged: (selection) =>
+              controller.setFileTreeHoverMode(selection.first),
+          style: ButtonStyle(
+            backgroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? AppColors.signal.withValues(alpha: 0.16)
+                  : AppColors.surface.withValues(alpha: 0.5),
+            ),
+            foregroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? AppColors.signal
+                  : AppColors.textMuted,
+            ),
+            side: WidgetStatePropertyAll(BorderSide(color: AppColors.line)),
+            textStyle: WidgetStatePropertyAll(
+              TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+            ),
+            padding: const WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            ),
+          ),
         ),
       ],
     );
@@ -326,10 +392,7 @@ class _ThemePreview extends StatelessWidget {
             Container(
               width: 18,
               color: palette.surface,
-              padding: const EdgeInsets.symmetric(
-                vertical: 4,
-                horizontal: 3,
-              ),
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 3),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -453,10 +516,7 @@ class _IconThemeCardState extends State<_IconThemeCard> {
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: borderColor,
-              width: selected ? 1.5 : 1,
-            ),
+            border: Border.all(color: borderColor, width: selected ? 1.5 : 1),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,8 +527,7 @@ class _IconThemeCardState extends State<_IconThemeCard> {
                 style: TextStyle(
                   color: AppColors.text,
                   fontSize: 11,
-                  fontWeight:
-                      selected ? FontWeight.w700 : FontWeight.w600,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 8),

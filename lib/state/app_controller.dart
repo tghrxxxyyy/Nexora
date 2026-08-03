@@ -33,6 +33,10 @@ enum ExplorerView { files, search, git }
 
 enum AppMessageTone { neutral, success, warning, error }
 
+/// How a row in the file explorer responds to hover: a flat highlight bar or
+/// the scale-up "pop out" effect.
+enum FileTreeHoverMode { highlight, scale }
+
 class AppController extends ChangeNotifier {
   AppController({
     this._pickerService = const FilePickerService(),
@@ -98,6 +102,7 @@ class AppController extends ChangeNotifier {
   String _currentThemeId = 'light';
   String _currentIconThemeId = IconThemeRegistry.defaultId;
   double _fontScale = 1;
+  FileTreeHoverMode _fileTreeHoverMode = FileTreeHoverMode.highlight;
   String? _activeHeadingAnchor;
   SearchReport? _searchReport;
   String? _searchError;
@@ -179,7 +184,9 @@ class AppController extends ChangeNotifier {
         ? AppThemeMode.dark
         : AppThemeMode.light;
   }
+
   double get fontScale => _fontScale;
+  FileTreeHoverMode get fileTreeHoverMode => _fileTreeHoverMode;
   String? get activeHeadingAnchor => _activeHeadingAnchor;
   SearchReport? get searchReport => _searchReport;
   String? get searchError => _searchError;
@@ -206,16 +213,16 @@ class AppController extends ChangeNotifier {
       _rightCollapsed = state['rightCollapsed'] == true;
       _leftSidebarWidth = state['leftSidebarWidth'] is num
           ? (state['leftSidebarWidth'] as num)
-              .toDouble()
-              .clamp(180.0, 480.0)
-              .toDouble()
+                .toDouble()
+                .clamp(180.0, 480.0)
+                .toDouble()
           : 252;
       _leftSidebarAnchorWidth = _leftSidebarWidth;
       _rightSidebarWidth = state['rightSidebarWidth'] is num
           ? (state['rightSidebarWidth'] as num)
-              .toDouble()
-              .clamp(160.0, 420.0)
-              .toDouble()
+                .toDouble()
+                .clamp(160.0, 420.0)
+                .toDouble()
           : 226;
       _explorerView = ExplorerView.values.firstWhere(
         (v) => v.name == state['explorerView'],
@@ -249,6 +256,10 @@ class AppController extends ChangeNotifier {
       _fontScale = state['fontScale'] is num
           ? (state['fontScale'] as num).toDouble().clamp(0.85, 1.45).toDouble()
           : 1;
+      _fileTreeHoverMode = FileTreeHoverMode.values.firstWhere(
+        (mode) => mode.name == state['fileTreeHoverMode'],
+        orElse: () => FileTreeHoverMode.highlight,
+      );
       AppColors.apply(currentTheme);
       _restoreRecentItems(state['recentItems']);
 
@@ -583,16 +594,19 @@ class AppController extends ChangeNotifier {
         }
       } else if (Platform.isWindows) {
         final ps = "'${normalizedPath.replaceAll("'", "''")}'";
-        await Process.run(
-          'powershell',
-          ['-NoProfile', '-Command', 'Set-Clipboard -LiteralPath $ps'],
-        );
+        await Process.run('powershell', [
+          '-NoProfile',
+          '-Command',
+          'Set-Clipboard -LiteralPath $ps',
+        ]);
       } else {
         showMessage('当前平台不支持复制文件', tone: AppMessageTone.warning);
         return;
       }
-      showMessage('已复制文件 ${p.basename(normalizedPath)}',
-          tone: AppMessageTone.success);
+      showMessage(
+        '已复制文件 ${p.basename(normalizedPath)}',
+        tone: AppMessageTone.success,
+      );
     } on ProcessException {
       showMessage('复制文件失败', tone: AppMessageTone.error);
     }
@@ -602,7 +616,8 @@ class AppController extends ChangeNotifier {
   /// uses `open -R` which selects the file inside its parent window.
   Future<void> revealInFileManager(String path) async {
     final normalizedPath = _normalize(path);
-    final exists = FileSystemEntity.typeSync(normalizedPath) !=
+    final exists =
+        FileSystemEntity.typeSync(normalizedPath) !=
         FileSystemEntityType.notFound;
     if (!exists) {
       showMessage('文件不存在', tone: AppMessageTone.error);
@@ -654,7 +669,8 @@ class AppController extends ChangeNotifier {
     // the focused pane without disturbing sibling panes.
     final activeSplit = workspace.split;
     if (activeSplit != null) {
-      final targetPaneId = _paneIdContainingPath(activeSplit, workspace.selectedFilePath) ??
+      final targetPaneId =
+          _paneIdContainingPath(activeSplit, workspace.selectedFilePath) ??
           activeSplit.leaves.first.paneId;
       await addToPaneDocument(targetPaneId, normalizedPath);
       // addToPaneDocument already updated workspace.selectedFilePath + split.
@@ -681,7 +697,8 @@ class AppController extends ChangeNotifier {
     // than replacing the pane's contents.
     final split = workspace.split;
     if (split != null) {
-      final paneId = _paneIdContainingPath(split, normalizedPath) ??
+      final paneId =
+          _paneIdContainingPath(split, normalizedPath) ??
           _paneIdContainingPath(split, workspace.selectedFilePath) ??
           split.leaves.first.paneId;
       // Make sure the path is a tab in that pane (push if missing) and active.
@@ -902,10 +919,7 @@ class AppController extends ChangeNotifier {
       AppColors.apply(persisted);
       notifyListeners();
       _scheduleSessionSave();
-      showMessage(
-        '已导入主题 ${persisted.name}',
-        tone: AppMessageTone.success,
-      );
+      showMessage('已导入主题 ${persisted.name}', tone: AppMessageTone.success);
     } on ThemeFormatException catch (error) {
       showMessage(error.message, tone: AppMessageTone.error);
     } on FileSystemException catch (error) {
@@ -950,6 +964,13 @@ class AppController extends ChangeNotifier {
     _scheduleSessionSave();
   }
 
+  void setFileTreeHoverMode(FileTreeHoverMode mode) {
+    if (_fileTreeHoverMode == mode) return;
+    _fileTreeHoverMode = mode;
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
   /// Shows or hides the integrated terminal for the active workspace.
   void toggleTerminal() {
     terminalWorkspace.toggle(workingDirectory: terminalWorkingDirectory);
@@ -970,9 +991,7 @@ class AppController extends ChangeNotifier {
   static const double _leftSidebarCollapseThreshold = 140;
 
   void setLeftSidebarWidth(double value) {
-    final next = value
-        .clamp(_leftSidebarMinDragWidth, 480.0)
-        .toDouble();
+    final next = value.clamp(_leftSidebarMinDragWidth, 480.0).toDouble();
     if ((_leftSidebarWidth - next).abs() < 0.001) return;
     _leftSidebarWidth = next;
     if (next >= _leftSidebarCollapseThreshold) {
@@ -1798,10 +1817,7 @@ class AppController extends ChangeNotifier {
     if (parent == null) return;
     final next = (parent.ratio + delta).clamp(0.1, 0.9).toDouble();
     if ((next - parent.ratio).abs() < 0.0001) return;
-    _replaceWorkspaceSplit(
-      workspace,
-      _updateBranchRatio(split, paneId, next),
-    );
+    _replaceWorkspaceSplit(workspace, _updateBranchRatio(split, paneId, next));
     notifyListeners();
     _scheduleSessionSave();
   }
@@ -2063,9 +2079,9 @@ class AppController extends ChangeNotifier {
     }
     _maybeDisposePrimary(normalized, tree: updated);
 
-    final newActivePath = updated.leaves.firstWhere(
-      (l) => l.paneId == paneId,
-    ).filePath;
+    final newActivePath = updated.leaves
+        .firstWhere((l) => l.paneId == paneId)
+        .filePath;
     final index = _workspaces.indexOf(workspace);
     if (index >= 0) {
       _workspaces[index] = workspace.copyWith(
@@ -2107,14 +2123,17 @@ class AppController extends ChangeNotifier {
   void _maybeDisposePrimary(String path, {SplitNode? tree}) {
     final normalized = _normalize(path);
     final treeToCheck = tree ?? activeWorkspace?.split;
-    final stillInTree = treeToCheck?.leaves.any(
+    final stillInTree =
+        treeToCheck?.leaves.any(
           (leaf) => leaf.openPaths.contains(normalized),
         ) ??
         false;
     if (stillInTree) return;
-    final stillTabbed = _workspaces.any((ws) =>
-        (ws.split == null && ws.selectedFilePath == normalized) ||
-        (_workspaceDocuments[ws.id] ?? const []).contains(normalized));
+    final stillTabbed = _workspaces.any(
+      (ws) =>
+          (ws.split == null && ws.selectedFilePath == normalized) ||
+          (_workspaceDocuments[ws.id] ?? const []).contains(normalized),
+    );
     if (stillTabbed) return;
     _sessions.remove(normalized)?.dispose();
   }
@@ -2200,7 +2219,10 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> _restoreSplitTree(WorkspaceItem workspace, SplitNode node) async {
+  Future<void> _restoreSplitTree(
+    WorkspaceItem workspace,
+    SplitNode node,
+  ) async {
     final leaves = node.leaves;
     for (var i = 0; i < leaves.length; i++) {
       final leaf = leaves[i];
@@ -2330,6 +2352,7 @@ class AppController extends ChangeNotifier {
       'themeId': _currentThemeId,
       'iconThemeId': _currentIconThemeId,
       'fontScale': _fontScale,
+      'fileTreeHoverMode': _fileTreeHoverMode.name,
       'terminalDock': terminalWorkspace.dock.name,
       'terminalBottomExtent': terminalWorkspace.bottomExtent,
       'terminalRightExtent': terminalWorkspace.rightExtent,

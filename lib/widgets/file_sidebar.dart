@@ -73,12 +73,7 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
     if (selectedPath == null || workspace?.isDirectory != true) return;
 
     final rows = <_TreeRow>[];
-    _flatten(
-      controller,
-      controller.childrenFor(workspace!.path),
-      0,
-      rows,
-    );
+    _flatten(controller, controller.childrenFor(workspace!.path), 0, rows);
     final filtered = _filter.isEmpty
         ? rows
         : _filterRows(rows, _filter.toLowerCase());
@@ -91,7 +86,7 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
     }
     if (targetIndex < 0) return;
 
-    const itemExtent = 28.0;
+    const itemExtent = 30.0;
     final viewport = _scrollController.position.viewportDimension;
     final currentMin = _scrollController.offset;
     final currentMax = currentMin + viewport;
@@ -175,12 +170,13 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                     controller: _scrollController,
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     itemCount: visibleRows.length,
-                    itemExtent: 32,
+                    itemExtent: 30,
                     itemBuilder: (context, index) {
                       final hoveredIndex = _hoveredRowIndex;
                       return _FileRow(
                         row: visibleRows[index],
                         selectedPath: workspace.selectedFilePath,
+                        hoverMode: widget.controller.fileTreeHoverMode,
                         hoverDistance: hoveredIndex == null
                             ? null
                             : (index - hoveredIndex).abs(),
@@ -195,10 +191,8 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                         },
                         onTap: () => _onRowTap(visibleRows[index]),
                         onArrowTap: () => _onArrowTap(visibleRows[index]),
-                        onSecondaryTap: (position) => _showRowContextMenu(
-                          visibleRows[index],
-                          position,
-                        ),
+                        onSecondaryTap: (position) =>
+                            _showRowContextMenu(visibleRows[index], position),
                       );
                     },
                   ),
@@ -342,6 +336,7 @@ class _FileRow extends StatefulWidget {
   const _FileRow({
     required this.row,
     required this.selectedPath,
+    required this.hoverMode,
     required this.hoverDistance,
     required this.onHoverChanged,
     required this.onTap,
@@ -351,6 +346,7 @@ class _FileRow extends StatefulWidget {
 
   final _TreeRow row;
   final String? selectedPath;
+  final FileTreeHoverMode hoverMode;
   final int? hoverDistance;
   final ValueChanged<bool> onHoverChanged;
   final VoidCallback onTap;
@@ -389,12 +385,22 @@ class _FileRowState extends State<_FileRow> {
     final row = widget.row;
     final showArrow = row.isDirectory || (row.isFile && _canExpandHeadings);
     final selected = widget.selectedPath == row.node.path && !row.isHeading;
-    final scale = switch (widget.hoverDistance) {
-      0 => 1.25,
-      1 => 1.13,
-      2 => 1.06,
-      _ => 1.0,
-    };
+    final hovered = widget.hoverDistance == 0;
+    final scale = widget.hoverMode == FileTreeHoverMode.highlight
+        ? 1.0
+        : switch (widget.hoverDistance) {
+            0 => 1.25,
+            1 => 1.13,
+            2 => 1.06,
+            _ => 1.0,
+          };
+    final background = widget.hoverMode == FileTreeHoverMode.scale
+        ? Colors.transparent
+        : selected
+        ? AppColors.signal.withValues(alpha: 0.09)
+        : hovered
+        ? AppColors.surfaceHover.withValues(alpha: 0.55)
+        : Colors.transparent;
 
     final body = MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -405,104 +411,108 @@ class _FileRowState extends State<_FileRow> {
         curve: AppMotion.emphasized,
         scale: scale,
         alignment: Alignment.centerLeft,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: row.isDirectory ? widget.onTap : null,
-          onSecondaryTapDown: row.isHeading
-              ? null
-              : (details) =>
-                  widget.onSecondaryTap?.call(details.globalPosition),
-          child: Stack(
-            children: [
-              Row(
-                children: [
-                  SizedBox(width: 10 + row.depth * 13),
-                  if (showArrow)
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: row.isFile ? widget.onArrowTap : widget.onTap,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: AnimatedRotation(
-                          duration: AppMotion.quick,
-                          curve: AppMotion.emphasized,
-                          turns: row.expanded ? 0.25 : 0,
-                          child: Icon(
-                            Icons.keyboard_arrow_right_rounded,
-                            size: 14,
-                            color: AppColors.textDim,
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    const SizedBox(width: 14),
-                  if (!row.isHeading) ...[
-                    const SizedBox(width: 3),
-                    _FileTypeIcon(node: row.node, expanded: row.expanded),
-                    const SizedBox(width: 7),
-                  ] else ...[
-                    SizedBox(
-                      width: 26,
-                      child: Text(
-                        'H${row.heading!.level}',
-                        style: TextStyle(
-                          color: _headingColor(row.heading!.level),
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.w700,
-                          fontFamily: 'MapleMonoCN',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                  ],
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: row.isDirectory ? null : widget.onTap,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _FileName(
-                            name: row.displayName,
-                            emphasized: widget.hoverDistance == 0,
-                            selected: selected,
-                            fontSize: row.isHeading ? 10.8 : 11.5,
-                          ),
-                        ),
-                        if (row.dirty) ...[
-                          const SizedBox(width: 5),
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: AppColors.amber,
-                              shape: BoxShape.circle,
+        child: Container(
+          color: background,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: row.isDirectory ? widget.onTap : null,
+            onSecondaryTapDown: row.isHeading
+                ? null
+                : (details) =>
+                      widget.onSecondaryTap?.call(details.globalPosition),
+            child: Stack(
+              alignment: AlignmentDirectional.centerStart,
+              children: [
+                Row(
+                  children: [
+                    SizedBox(width: 10 + row.depth * 15),
+                    if (showArrow)
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: row.isFile ? widget.onArrowTap : widget.onTap,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: AnimatedRotation(
+                            duration: AppMotion.quick,
+                            curve: AppMotion.emphasized,
+                            turns: row.expanded ? 0.25 : 0,
+                            child: Icon(
+                              Icons.keyboard_arrow_right_rounded,
+                              size: 14,
+                              color: AppColors.textDim,
                             ),
                           ),
-                          const SizedBox(width: 3),
+                        ),
+                      )
+                    else
+                      const SizedBox(width: 14),
+                    if (!row.isHeading) ...[
+                      const SizedBox(width: 3),
+                      _FileTypeIcon(node: row.node, expanded: row.expanded),
+                      const SizedBox(width: 7),
+                    ] else ...[
+                      SizedBox(
+                        width: 26,
+                        child: Text(
+                          'H${row.heading!.level}',
+                          style: TextStyle(
+                            color: _headingColor(row.heading!.level),
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w700,
+                            fontFamily: 'MapleMonoCN',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                    ],
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: row.isDirectory ? null : widget.onTap,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _FileName(
+                              name: row.displayName,
+                              emphasized: hovered,
+                              selected: selected,
+                              fontSize: row.isHeading ? 10.8 : 11.5,
+                            ),
+                          ),
+                          if (row.dirty) ...[
+                            const SizedBox(width: 5),
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: AppColors.amber,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-              ),
-              if (selected)
-                Positioned(
-                  left: 0,
-                  top: 5,
-                  bottom: 5,
-                  child: Container(
-                    width: 2,
-                    decoration: BoxDecoration(
-                      color: AppColors.signal.withValues(alpha: 0.84),
-                      borderRadius: const BorderRadius.horizontal(
-                        right: Radius.circular(3),
+                    const SizedBox(width: 8),
+                  ],
+                ),
+                if (selected)
+                  Positioned(
+                    left: 0,
+                    top: 5,
+                    bottom: 5,
+                    child: Container(
+                      width: 2,
+                      decoration: BoxDecoration(
+                        color: AppColors.signal.withValues(alpha: 0.84),
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(3),
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

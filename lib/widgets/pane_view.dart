@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../app_theme.dart';
 import '../state/app_controller.dart';
 import '../state/editor_session.dart';
 import 'code_editor_view.dart';
@@ -23,11 +24,7 @@ import 'ui_primitives.dart';
 /// outline attached to the pane showing the document rather than floating at
 /// the workspace edge.
 class PaneView extends StatelessWidget {
-  const PaneView({
-    required this.controller,
-    required this.session,
-    super.key,
-  });
+  const PaneView({required this.controller, required this.session, super.key});
 
   final AppController controller;
   final EditorSession session;
@@ -52,13 +49,7 @@ class PaneView extends StatelessWidget {
     return KeyedSubtree(
       key: ValueKey('${doc.path}:split'),
       child: _withOutline(
-        Row(
-          children: [
-            Expanded(flex: 11, child: _editor()),
-            SignalDivider(vertical: true),
-            Expanded(flex: 10, child: _preview()),
-          ],
-        ),
+        _SplitMarkdownPane(controller: controller, session: session),
         showOutline,
       ),
     );
@@ -154,6 +145,225 @@ class PaneView extends StatelessWidget {
         for (final heading in session.headings) {
           if (heading.anchor == anchor) {
             controller.jumpToHeading(heading.lineNumber, heading.anchor);
+            break;
+          }
+        }
+      },
+    );
+  }
+}
+
+/// Split-mode layout for a single markdown document: editor on the left,
+/// live preview on the right, a draggable divider between them, and two-way
+/// scroll sync so scrolling either side moves the other to the same relative
+/// position.
+class _SplitMarkdownPane extends StatefulWidget {
+  const _SplitMarkdownPane({required this.controller, required this.session});
+
+  final AppController controller;
+  final EditorSession session;
+
+  @override
+  State<_SplitMarkdownPane> createState() => _SplitMarkdownPaneState();
+}
+
+class _SplitMarkdownPaneState extends State<_SplitMarkdownPane> {
+  /// Fraction difference below which the two sides count as already aligned.
+  /// Guards against feedback loops: when the preview echoes back the position
+  /// we just drove it to (or the editor is already at the position the preview
+  /// reported), syncing again would ping-pong forever.
+  static const double _syncThreshold = 0.005;
+
+  /// Editor scroll events fire at frame rate; the preview only needs to follow
+  /// at ~25fps, and each sync drives a WebView JS round-trip plus a rebuild of
+  /// this subtree. Throttling keeps the editor scrolling smooth.
+  static const Duration _editorSyncInterval = Duration(milliseconds: 40);
+
+  /// After we drive the preview from the editor, the preview echoes a scroll
+  /// report back ~80-160ms later (80ms JS throttle + bridge latency). Treating
+  /// that echo as a user scroll and reverse-syncing would yank the editor back
+  /// mid-scroll. Reports arriving within this window are ignored for reverse
+  /// sync.
+  static const Duration _previewEchoWindow = Duration(milliseconds: 200);
+
+  late double _ratio;
+  double _reportedPreviewFraction = 0;
+  DateTime _lastEditorDrive = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Drives the preview on the editor→preview direction. A [ValueNotifier]
+  /// (instead of setState) so scrolling the editor never rebuilds this subtree
+  /// — rebuilding re_editor's [CodeEditor] on every scroll is what made the
+  /// editor feel janky.
+  final ValueNotifier<double?> _previewFraction = ValueNotifier<double?>(null);
+
+  EditorSession get _session => widget.session;
+
+  AppController get _controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _ratio = _session.splitRatio;
+    _session.scrollController.verticalScroller.addListener(_onEditorScroll);
+  }
+
+  @override
+  void dispose() {
+    _session.scrollController.verticalScroller.removeListener(_onEditorScroll);
+    _previewFraction.dispose();
+    super.dispose();
+  }
+
+  void _onEditorScroll() {
+    final scroller = _session.scrollController.verticalScroller;
+    if (!scroller.hasClients) return;
+    final max = scroller.position.maxScrollExtent;
+    if (max <= 0) return;
+    final now = DateTime.now();
+    if (now.difference(_lastEditorDrive) < _editorSyncInterval) return;
+    final fraction = (scroller.offset / max).clamp(0.0, 1.0);
+    if ((fraction - _reportedPreviewFraction).abs() < _syncThreshold) return;
+    if (_previewFraction.value == fraction) return;
+    _lastEditorDrive = now;
+    _previewFraction.value = fraction;
+  }
+
+  void _onPreviewFraction(double fraction) {
+    _reportedPreviewFraction = fraction;
+    // The preview just echoed back a position we drove it to — don't reverse
+    // sync, or the editor gets yanked back while the user is still scrolling.
+    if (DateTime.now().difference(_lastEditorDrive) < _previewEchoWindow) {
+      return;
+    }
+    final scroller = _session.scrollController.verticalScroller;
+    if (!scroller.hasClients) return;
+    final max = scroller.position.maxScrollExtent;
+    if (max <= 0) return;
+    if ((scroller.offset / max - fraction).abs() < _syncThreshold) return;
+    scroller.jumpTo((fraction * max).clamp(0.0, max));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final totalWidth = constraints.maxWidth;
+        final editorWidth = totalWidth * _ratio;
+        return Row(
+          children: [
+            SizedBox(width: editorWidth, child: _editor()),
+            _divider(totalWidth),
+            Expanded(child: _preview()),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _divider(double totalWidth) {
+    final safeWidth = totalWidth <= 0 ? 1.0 : totalWidth;
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeLeftRight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (details) {
+          final next = (_ratio + details.delta.dx / safeWidth).clamp(
+            0.25,
+            0.75,
+          );
+          if (next == _ratio) return;
+          setState(() => _ratio = next);
+          _session.setSplitRatio(next);
+        },
+        child: SizedBox(
+          width: 7,
+          child: Center(
+            child: Container(
+              width: 1,
+              color: AppColors.signal.withValues(alpha: 0.35),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _editor() {
+    return CodeEditorView(
+      path: _session.document.path,
+      controller: _session.editorController,
+      findController: _session.findController,
+      scrollController: _session.scrollController,
+      initialScrollOffset: _session.editorScrollOffset,
+      wordWrap: _session.wordWrap,
+      fontScale: _controller.fontScale,
+      onChanged: (_) {},
+      onSave: _controller.saveActiveDocument,
+    );
+  }
+
+  Widget _preview() {
+    final workspace = _controller.activeWorkspace;
+    final workspaceRoot = workspace?.isDirectory == true
+        ? workspace!.path
+        : p.dirname(_session.document.path);
+    if (_session.document.isImage) {
+      return ImagePreview(path: _session.document.path);
+    }
+    if (_session.document.isHtml) {
+      return HtmlPreview(
+        path: _session.document.path,
+        content: _session.document.content,
+      );
+    }
+    if (Platform.isLinux) {
+      return MarkdownPreview(
+        path: _session.document.path,
+        workspaceRoot: workspaceRoot,
+        content: _session.document.content,
+        headings: _session.headings,
+        previewAnchor: _session.previewAnchor,
+        previewJumpId: _session.previewJumpId,
+        findController: _session.previewFindController,
+        onOpenLocalPath: _controller.openPath,
+        onOpenAnchor: (anchor) {
+          for (final heading in _session.headings) {
+            if (heading.anchor == anchor) {
+              _controller.jumpToHeading(heading.lineNumber, heading.anchor);
+              break;
+            }
+          }
+        },
+      );
+    }
+    return MarkdownDomPreview(
+      path: _session.document.path,
+      workspaceRoot: workspaceRoot,
+      content: _session.document.content,
+      headings: _session.headings,
+      previewAnchor: _session.previewAnchor,
+      previewJumpId: _session.previewJumpId,
+      findController: _session.previewFindController,
+      themeMode: _controller.themeMode,
+      themeId: _controller.currentThemeId,
+      fontScale: _controller.fontScale,
+      scrollOffset: _session.previewScrollOffset,
+      // Persist by path, not by captured session — the scroll sync is async and
+      // by the time it lands the mounted session may have switched to another
+      // document. Resolving the session by path keeps the value on the right
+      // document.
+      onScrollPersist: (path, y) {
+        final target = _controller.sessions[path];
+        if (target != null) target.setPreviewScrollOffset(y);
+      },
+      onScrollFractionChanged: _onPreviewFraction,
+      scrollFraction: _previewFraction,
+      onContentChanged: _session.replaceContentFromPreview,
+      onOpenLocalPath: _controller.openPath,
+      onOpenAnchor: (anchor) {
+        for (final heading in _session.headings) {
+          if (heading.anchor == anchor) {
+            _controller.jumpToHeading(heading.lineNumber, heading.anchor);
             break;
           }
         }

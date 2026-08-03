@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -30,6 +31,8 @@ class MarkdownDomPreview extends StatefulWidget {
     required this.fontScale,
     this.scrollOffset = 0,
     this.onScrollPersist,
+    this.scrollFraction,
+    this.onScrollFractionChanged,
     this.onContentChanged,
     this.onOpenLocalPath,
     this.onOpenAnchor,
@@ -58,6 +61,17 @@ class MarkdownDomPreview extends StatefulWidget {
   /// [path], never the currently mounted session.
   final void Function(String path, double y)? onScrollPersist;
 
+  /// Split-mode sync drive: when the sibling editor scrolls, this notifier's
+  /// value changes and the preview jumps to the same fraction of its own
+  /// scroll range. `null` disables external driving (non-split modes). Fed via
+  /// a [ValueNotifier] rather than a plain field so the editor→preview sync
+  /// doesn't rebuild this widget (or its sibling editor) on every scroll.
+  final ValueListenable<double?>? scrollFraction;
+
+  /// Reports the preview's scroll fraction (y / maxY) as the user scrolls, so
+  /// the sibling editor can follow.
+  final ValueChanged<double>? onScrollFractionChanged;
+
   final ValueChanged<String>? onContentChanged;
   final ValueChanged<String>? onOpenLocalPath;
   final ValueChanged<String>? onOpenAnchor;
@@ -70,6 +84,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   late final WebViewController _controller;
   bool _loading = true;
   bool _pageReady = false;
+  double _previewMaxY = 0;
   String? _error;
   String? _pendingAnchor;
   String? _mermaidScript;
@@ -80,8 +95,18 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   /// `window.scrollY` and persist it to the right session.
   String? _currentPath;
 
-  static const _appearanceChannel =
-      MethodChannel('com.xuyu.nexora/webview_appearance');
+  /// The notifier currently being listened to for external scroll drive.
+  ValueListenable<double?>? _attachedScrollFraction;
+
+  void _onExternalScrollFraction() {
+    final f = _attachedScrollFraction?.value;
+    if (f == null) return;
+    unawaited(_runJavaScript('window.nexoraSetScrollYFraction($f);'));
+  }
+
+  static const _appearanceChannel = MethodChannel(
+    'com.xuyu.nexora/webview_appearance',
+  );
   int _observedNavigationRequestId = 0;
   bool _observedFindOpen = false;
   bool _observedCaseSensitive = false;
@@ -101,6 +126,8 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     _observedFindQuery = widget.findController.query;
     _pendingAnchor = widget.previewAnchor;
     _currentPath = widget.path;
+    _attachedScrollFraction = widget.scrollFraction;
+    widget.scrollFraction?.addListener(_onExternalScrollFraction);
     widget.findController.addListener(_handleFindChanged);
     _initializeWebView();
   }
@@ -186,10 +213,16 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       _pendingAnchor = widget.previewAnchor;
       unawaited(_flushPageCommands());
     }
+    if (widget.scrollFraction != oldWidget.scrollFraction) {
+      oldWidget.scrollFraction?.removeListener(_onExternalScrollFraction);
+      _attachedScrollFraction = widget.scrollFraction;
+      widget.scrollFraction?.addListener(_onExternalScrollFraction);
+    }
   }
 
   @override
   void dispose() {
+    _attachedScrollFraction?.removeListener(_onExternalScrollFraction);
     widget.findController.removeListener(_handleFindChanged);
     super.dispose();
   }
@@ -308,9 +341,13 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       'b': (argb & 0xff) / 255.0,
       'a': ((argb >> 24) & 0xff) / 255.0,
     };
-    _appearanceChannel.invokeMethod<bool>('setBaseColor', args).catchError((_) => false);
+    _appearanceChannel
+        .invokeMethod<bool>('setBaseColor', args)
+        .catchError((_) => false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _appearanceChannel.invokeMethod<bool>('setBaseColor', args).catchError((_) => false);
+      _appearanceChannel
+          .invokeMethod<bool>('setBaseColor', args)
+          .catchError((_) => false);
     });
   }
 
@@ -450,6 +487,24 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       final value = jsonDecode(message.message);
       if (value is! Map) return;
       final type = value['type'];
+      if (type == 'scroll') {
+        final y = value['y'];
+        final maxY = value['maxY'];
+        if (y is num) {
+          _previewMaxY = maxY is num ? maxY.toDouble() : 0;
+          widget.onScrollPersist?.call(
+            _currentPath ?? widget.path,
+            y.toDouble(),
+          );
+          if (widget.onScrollFractionChanged != null) {
+            final fraction = _previewMaxY > 0
+                ? (y.toDouble() / _previewMaxY).clamp(0.0, 1.0)
+                : 0.0;
+            widget.onScrollFractionChanged!(fraction);
+          }
+        }
+        return;
+      }
       if (type == 'find') {
         final count = value['count'];
         if (count is! num) return;
@@ -488,14 +543,18 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
 
   Future<void> _showImageEditDialog(Map<dynamic, dynamic> data) async {
     final src = (data['src'] as String?) ?? '';
-    final altController =
-        TextEditingController(text: (data['alt'] as String?) ?? '');
-    final titleController =
-        TextEditingController(text: (data['title'] as String?) ?? '');
-    final widthController =
-        TextEditingController(text: (data['width'] as String?) ?? '');
-    final heightController =
-        TextEditingController(text: (data['height'] as String?) ?? '');
+    final altController = TextEditingController(
+      text: (data['alt'] as String?) ?? '',
+    );
+    final titleController = TextEditingController(
+      text: (data['title'] as String?) ?? '',
+    );
+    final widthController = TextEditingController(
+      text: (data['width'] as String?) ?? '',
+    );
+    final heightController = TextEditingController(
+      text: (data['height'] as String?) ?? '',
+    );
 
     final accepted = await showDialog<bool>(
       context: context,
@@ -508,9 +567,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
             children: [
               TextField(
                 controller: altController,
-                decoration: const InputDecoration(
-                  labelText: '替代文本 (caption)',
-                ),
+                decoration: const InputDecoration(labelText: '替代文本 (caption)'),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -555,12 +612,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
 
     if (accepted != true) return;
     await _runJavaScript(
-      'window.nexoraUpdateImage(${jsonEncode(src)}, ${jsonEncode({
-        'alt': altController.text,
-        'title': titleController.text,
-        'width': widthController.text,
-        'height': heightController.text,
-      })});',
+      'window.nexoraUpdateImage(${jsonEncode(src)}, ${jsonEncode({'alt': altController.text, 'title': titleController.text, 'width': widthController.text, 'height': heightController.text})});',
     );
   }
 
@@ -709,12 +761,12 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     final mermaidInit = _mermaidScript == null
         ? ''
         : '<script>$_mermaidScript</script>\n'
-            '<script>if(window.mermaid){window.mermaid.initialize({'
-            'startOnLoad:false,'
-            "theme:'${dark ? 'dark' : 'default'}',"
-            "securityLevel:'loose',"
-            "fontFamily:'inherit'"
-            '});}</script>';
+              '<script>if(window.mermaid){window.mermaid.initialize({'
+              'startOnLoad:false,'
+              "theme:'${dark ? 'dark' : 'default'}',"
+              "securityLevel:'loose',"
+              "fontFamily:'inherit'"
+              '});}</script>';
     return '''<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -734,8 +786,9 @@ $mermaidInit
   String _markdownHtml() {
     var source = widget.content;
     var frontMatterHtml = '';
-    final fmMatch =
-        RegExp(r'^---[ \t]*\n([\s\S]*?)\n---[ \t]*\n').firstMatch(source);
+    final fmMatch = RegExp(
+      r'^---[ \t]*\n([\s\S]*?)\n---[ \t]*\n',
+    ).firstMatch(source);
     if (fmMatch != null) {
       frontMatterHtml =
           '<pre class="nexora-front-matter"><code>${const HtmlEscape().convert(fmMatch.group(1)!)}</code></pre>';
@@ -773,10 +826,8 @@ $mermaidInit
       if (width != null && width.isNotEmpty) attrs.add('width="$width"');
       if (height != null && height.isNotEmpty) attrs.add('height="$height"');
       final attrStr = attrs.isEmpty ? '' : ' ${attrs.join(' ')}';
-      final escAlt =
-          const HtmlEscape(HtmlEscapeMode.attribute).convert(alt);
-      final escSrc =
-          const HtmlEscape(HtmlEscapeMode.attribute).convert(src);
+      final escAlt = const HtmlEscape(HtmlEscapeMode.attribute).convert(alt);
+      final escSrc = const HtmlEscape(HtmlEscapeMode.attribute).convert(src);
       return '<img alt="$escAlt" src="$escSrc"$attrStr />';
     });
   }
@@ -1897,6 +1948,23 @@ window.nexoraReady = function() {
   window.nexoraBuildToc();
   window.nexoraWrapImages();
   window.nexoraRenderMermaid();
+  window.nexoraWatchScroll();
+};
+window.nexoraSetScrollYFraction = function(f) {
+  var maxY = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo({ top: f * maxY, behavior: 'instant' });
+};
+window.nexoraWatchScroll = function() {
+  if (window.nexoraScrollWatching) return;
+  window.nexoraScrollWatching = true;
+  var lastReport = 0;
+  document.addEventListener('scroll', function() {
+    var now = Date.now();
+    if (now - lastReport < 80) return;
+    lastReport = now;
+    var maxY = document.documentElement.scrollHeight - window.innerHeight;
+    window.nexoraPostMessage({ type: 'scroll', y: window.scrollY, maxY: maxY });
+  });
 };
 window.nexoraSetFontScale = function(value) {
   document.documentElement.style.setProperty('--nexora-font-scale', value);
