@@ -36,7 +36,33 @@
     CAUTION: { type: "caution", title: "Caution", icon: "🔥" },
   };
 
+  function promoteAlert(el, type) {
+    if (el.classList.contains("nexora-alert")) return;
+    var item = ALERT_MAP[type.toUpperCase()];
+    if (!item) return;
+    // VS Code's own alert ships a <p class="markdown-alert-title"> (icon + word);
+    // replace it with Nexora's capsule and swap the classes so Nexora CSS wins.
+    var title = el.querySelector(".markdown-alert-title");
+    if (title) title.remove();
+    var capsule = document.createElement("div");
+    capsule.className =
+      "nexora-alert-text-container nexora-alert-text-" + type;
+    capsule.innerHTML =
+      '<span class="nexora-alert-icon">' + item.icon + "</span>" + item.title;
+    el.insertBefore(capsule, el.firstChild);
+    el.classList.remove("markdown-alert", "markdown-alert-" + type);
+    el.classList.add("nexora-alert", "nexora-alert-" + type);
+  }
+
   function enhanceAlerts() {
+    // VS Code renders GitHub alerts as <div class="markdown-alert markdown-alert-X">.
+    document.querySelectorAll(".markdown-alert").forEach(function (el) {
+      var m = (el.className || "").match(
+        /markdown-alert-(note|tip|warning|important|caution)\b/i
+      );
+      if (m) promoteAlert(el, m[1].toLowerCase());
+    });
+    // Fallback for renderers that keep the literal "[!NOTE]" inside a blockquote.
     var blockquotes = document.querySelectorAll("blockquote");
     forEach(blockquotes, function (bq) {
       if (bq.classList.contains("nexora-alert")) return;
@@ -49,16 +75,7 @@
       var item = ALERT_MAP[match[1].toUpperCase()];
       if (!item) return;
       target.innerHTML = html.slice(match[0].length);
-      var capsule = document.createElement("div");
-      capsule.className =
-        "nexora-alert-text-container nexora-alert-text-" + item.type;
-      capsule.innerHTML =
-        '<span class="nexora-alert-icon">' +
-        item.icon +
-        "</span>" +
-        item.title;
-      bq.insertBefore(capsule, bq.firstChild);
-      bq.classList.add("nexora-alert", "nexora-alert-" + item.type);
+      promoteAlert(bq, item.type);
     });
   }
 
