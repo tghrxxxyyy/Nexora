@@ -1,0 +1,1453 @@
+/**
+ * Nexora Markdown Preview — theme stylesheet for VS Code's built-in markdown preview.
+ *
+ * Ported from Nexora `lib/widgets/markdown_dom_preview.dart` (`_styleSheet()`).
+ * Scoped under `body.vscode-body` so it overrides VS Code's default preview CSS,
+ * and uses CSS nesting + theme variables so light/dark swap automatically via
+ * the `vscode-dark` / `vscode-high-contrast` body class.
+ */
+
+:root {
+  --nexora-font-scale: 1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  min-height: 100%;
+  scroll-behavior: smooth;
+  background: var(--vscode-editor-background, #ffffff);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: 10px;
+  background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.4));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(128, 128, 128, 0.7));
+}
+::-webkit-scrollbar-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground, rgba(128, 128, 128, 0.9));
+}
+
+body.vscode-body {
+  /* ===== Base colors follow the active VS Code theme ===== */
+  --nx-bg: var(--vscode-editor-background, #ffffff);
+  --nx-bg-raised: var(--vscode-editor-background, #ffffff);
+  --nx-surface: var(--vscode-textBlockQuote-background, color-mix(in srgb, var(--vscode-editor-foreground, #263440) 5%, transparent));
+  --nx-surface-raised: var(--vscode-editorWidget-background, var(--vscode-editor-background, #ffffff));
+  --nx-surface-hover: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-editor-foreground, #263440) 6%, transparent));
+  --nx-line: var(--vscode-editorGroup-border, #e9eff5);
+  --nx-line-strong: var(--vscode-editorOverviewRuler-border, var(--vscode-editorGroup-border, #d8e3ee));
+  --nx-text: var(--vscode-editor-foreground, #263440);
+  --nx-text-muted: var(--vscode-descriptionForeground, #667584);
+  --nx-text-dim: var(--vscode-disabledForeground, #9ba8b5);
+
+  /* Accent (links / heading gradient): follow VS Code link color */
+  --nx-signal: var(--vscode-textLink-foreground, #3298e0);
+  --nx-signal-dim: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground, #79bdeb));
+
+  /* Syntax-highlight accents: Nexora palette (VS Code exposes no equivalent) */
+  --nx-acid: #667e9c;
+  --nx-coral: #e97878;
+  --nx-amber: #f1b454;
+
+  /* ===== Derived tokens (auto-adapt via color-mix) ===== */
+  --nx-element: var(--nx-signal);
+  --nx-element-deep: var(--nx-signal-dim);
+  --nx-element-shallow: color-mix(in srgb, var(--nx-signal) 45%, transparent);
+  --nx-element-so-shallow: color-mix(in srgb, var(--nx-signal) 12%, transparent);
+  --nx-element-soo-shallow: color-mix(in srgb, var(--nx-signal) 6%, transparent);
+  --nx-linecode: var(--nx-signal-dim);
+  --nx-linecode-bg: color-mix(in srgb, var(--nx-signal) 10%, transparent);
+  --nx-h2-fg: #ffffff;
+
+  --nx-shadow-code: color-mix(in srgb, #000 5%, transparent);
+  --nx-shadow-img: color-mix(in srgb, #000 10%, transparent);
+  --nx-shadow-alert: color-mix(in srgb, #000 10%, transparent);
+  --nx-shadow-signal-sm: color-mix(in srgb, var(--nx-signal) 20%, transparent);
+  --nx-shadow-signal-lg: color-mix(in srgb, var(--nx-signal) 30%, transparent);
+  --nx-code-border: color-mix(in srgb, var(--nx-line-strong) 45%, transparent);
+  --nx-code-header-border: color-mix(in srgb, var(--nx-line-strong) 40%, transparent);
+  --nx-table-border: color-mix(in srgb, var(--nx-line) 50%, transparent);
+  --nx-frontmatter-border: color-mix(in srgb, var(--nx-line-strong) 50%, transparent);
+  --nx-toc-border: color-mix(in srgb, var(--nx-line-strong) 40%, transparent);
+  --nx-footnote-border: color-mix(in srgb, var(--nx-line-strong) 30%, transparent);
+  --nx-checkbox-border: color-mix(in srgb, var(--nx-line-strong) 65%, transparent);
+  --nx-alert-pill-bg: color-mix(in srgb, var(--nx-bg) 80%, transparent);
+  --nx-callout-a: 0.12;
+  --nx-callout-a-hover: 0.17;
+
+  /* ===== Body / layout (full-bleed, no side gutters) ===== */
+  margin: 0;
+  min-height: 100vh;
+  padding: 32px 48px 120px;
+  color: var(--nx-text) !important;
+  background: var(--nx-bg) !important;
+  background-image: none !important;
+  font-family: "Maple Mono", "MapleMonoCN", "SF Mono", "PingFang SC",
+    "Noto Sans CJK SC", Consolas, monospace !important;
+  font-size: calc(15px * var(--nexora-font-scale)) !important;
+  line-height: 1.75;
+  letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+
+  /* ===== Dark / high-contrast tweaks (base colors already follow VS Code) ===== */
+}
+
+body.vscode-body ::selection {
+    background: color-mix(in srgb, var(--nx-signal) 25%, transparent);
+  }
+
+/* ===== Headings ===== */
+
+body.vscode-body h1,
+  body.vscode-body h2,
+  body.vscode-body h3,
+  body.vscode-body h4,
+  body.vscode-body h5,
+  body.vscode-body h6 {
+    scroll-margin-top: 28px;
+    color: var(--nx-text);
+    position: relative;
+    transition: color 0.3s ease, transform 0.3s ease;
+    line-height: 1.4;
+  }
+
+body.vscode-body h1 {
+    text-align: center;
+    font-size: calc(28px * var(--nexora-font-scale));
+    font-weight: 700;
+    margin: 14px auto 18px;
+    line-height: 1.4;
+    width: fit-content;
+    min-width: 120px;
+    padding-bottom: 12px;
+    border-bottom: none;
+  }
+
+body.vscode-body h1::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 50px;
+    height: 4px;
+    border-radius: 4px;
+    background: linear-gradient(
+      to right,
+      var(--nx-element-deep),
+      var(--nx-element),
+      var(--nx-element-deep)
+    );
+    background-size: 200% auto;
+    transform: translateX(-50%);
+    transition: width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+body.vscode-body h1:hover {
+    color: var(--nx-element);
+    transform: translateY(-2px);
+  }
+
+body.vscode-body h1:hover::after {
+    width: 100%;
+  }
+
+body.vscode-body h2 {
+    color: var(--nx-h2-fg);
+    font-size: calc(21px * var(--nexora-font-scale));
+    line-height: 1.5;
+    width: fit-content;
+    max-width: 100%;
+    font-weight: 700;
+    margin: 24px 0 14px;
+    padding: 6px 16px;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(
+      to right,
+      var(--nx-element-deep),
+      var(--nx-element),
+      var(--nx-element-deep)
+    );
+    background-size: 200% auto;
+    background-position: 0 center;
+    box-shadow: 0 2px 6px var(--nx-shadow-signal-sm);
+    transition: background-position 0.5s ease-out, transform 0.4s ease,
+      box-shadow 0.4s ease;
+  }
+
+body.vscode-body h2:hover {
+    background-position: 100% center;
+    transform: scale(1.01);
+    box-shadow: 0 8px 20px var(--nx-shadow-signal-lg);
+  }
+
+body.vscode-body h3 {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    margin: 22px 0 12px;
+    text-align: left;
+    font-size: calc(18px * var(--nexora-font-scale));
+    font-weight: 700;
+    color: var(--nx-text);
+    padding-left: 12px;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+body.vscode-body h3::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 5px;
+    height: 65%;
+    border-radius: 4px;
+    background: var(--nx-element);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+body.vscode-body h3:hover {
+    padding-left: 18px;
+    color: var(--nx-element);
+  }
+
+body.vscode-body h3:hover::before {
+    height: 75%;
+    width: 7px;
+    background: var(--nx-element);
+  }
+
+body.vscode-body h4 {
+    margin: 20px 0 10px;
+    font-size: calc(16px * var(--nexora-font-scale));
+    font-weight: 700;
+    text-align: left;
+    color: var(--nx-text);
+  }
+
+body.vscode-body h4::before {
+    content: "";
+    margin-right: 8px;
+    display: inline-block;
+    background-color: var(--nx-element);
+    width: 9px;
+    height: 9px;
+    border-radius: 100%;
+    vertical-align: middle;
+    transform: translateY(-2px);
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+body.vscode-body h4:hover::before {
+    transform: scale(1.4) translateY(-2px);
+    box-shadow: 0 0 0 4px var(--nx-element-soo-shallow);
+  }
+
+body.vscode-body h5 {
+    margin: 20px 0 10px;
+    font-size: calc(14px * var(--nexora-font-scale));
+    font-weight: 700;
+    text-align: left;
+    color: var(--nx-text);
+  }
+
+body.vscode-body h5::before {
+    content: "";
+    margin-right: 8px;
+    display: inline-block;
+    background-color: var(--nx-bg-raised);
+    width: 10px;
+    height: 10px;
+    border-radius: 100%;
+    border: 2px solid var(--nx-element);
+    vertical-align: middle;
+    transform: translateY(-2px);
+    box-sizing: border-box;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+body.vscode-body h5:hover::before {
+    background-color: var(--nx-element);
+    transform: scale(1.2) translateY(-2px);
+    box-shadow: 0 0 0 3px var(--nx-element-soo-shallow);
+  }
+
+body.vscode-body h6 {
+    margin: 20px 0 10px;
+    font-size: calc(13px * var(--nexora-font-scale));
+    font-weight: 700;
+    text-align: left;
+    color: var(--nx-text-muted);
+  }
+
+body.vscode-body h6::before {
+    content: "—";
+    color: var(--nx-element);
+    margin-right: 8px;
+    display: inline-block;
+    vertical-align: middle;
+    transition: transform 0.3s ease;
+  }
+
+body.vscode-body h6:hover::before {
+    transform: scaleX(1.8) translateX(2px);
+    font-weight: 700;
+  }
+
+body.vscode-body h4:hover,
+  body.vscode-body h5:hover,
+  body.vscode-body h6:hover {
+    color: var(--nx-element-deep);
+    transform: translateX(4px);
+  }
+
+/* ===== Paragraphs & inline ===== */
+
+body.vscode-body p {
+    margin: 8px 0;
+    line-height: 1.85;
+    color: var(--nx-text);
+  }
+
+body.vscode-body a {
+    color: var(--nx-text);
+    text-decoration: none;
+    font-weight: 500;
+    padding: 2px 4px;
+    margin: 0 -2px;
+    border-radius: 4px;
+    background: 0 0;
+    border-bottom: none;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+
+body.vscode-body a::before {
+    content: "";
+    display: inline-block;
+    width: 0.95em;
+    height: 0.95em;
+    margin-right: 4px;
+    vertical-align: -0.15em;
+    background-color: var(--nx-element);
+    -webkit-mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cpath d='M477.934459 330.486594A50.844091 50.844091 0 0 1 406.752731 258.796425L512 152.532274a254.220457 254.220457 0 0 1 359.467726 359.467726L762.66137 618.772592a50.844091 50.844091 0 1 1-71.690168-71.690169l106.772591-106.772592a152.532274 152.532274 0 0 0-215.578947-215.578947z m70.164846 361.501489A50.844091 50.844091 0 1 1 619.789474 762.66137l-107.281033 107.281033A254.220457 254.220457 0 0 1 152.532274 512L259.813307 406.752731a50.844091 50.844091 0 1 1 72.19861 69.656405l-107.789474 107.281033a152.532274 152.532274 0 0 0 215.578947 215.578947z m-126.601788-16.77855a50.844091 50.844091 0 1 1-71.690168-71.690169l251.678252-251.678252a50.844091 50.844091 0 0 1 71.690169 71.690169z'/%3E%3C/svg%3E") no-repeat center/contain;
+    mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cpath d='M477.934459 330.486594A50.844091 50.844091 0 0 1 406.752731 258.796425L512 152.532274a254.220457 254.220457 0 0 1 359.467726 359.467726L762.66137 618.772592a50.844091 50.844091 0 1 1-71.690168-71.690169l106.772591-106.772592a152.532274 152.532274 0 0 0-215.578947-215.578947z m70.164846 361.501489A50.844091 50.844091 0 1 1 619.789474 762.66137l-107.281033 107.281033A254.220457 254.220457 0 0 1 152.532274 512L259.813307 406.752731a50.844091 50.844091 0 1 1 72.19861 69.656405l-107.789474 107.281033a152.532274 152.532274 0 0 0 215.578947 215.578947z m-126.601788-16.77855a50.844091 50.844091 0 1 1-71.690168-71.690169l251.678252-251.678252a50.844091 50.844091 0 0 1 71.690169 71.690169z'/%3E%3C/svg%3E") no-repeat center/contain;
+    transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+body.vscode-body a:hover {
+    color: var(--nx-element-deep);
+    background: var(--nx-element-soo-shallow);
+  }
+
+body.vscode-body a:hover::before {
+    transform: rotate(180deg);
+    background-color: var(--nx-element-deep);
+  }
+
+body.vscode-body a:visited {
+    color: var(--nx-element-deep);
+  }
+
+/* Image-wrapping links (shields.io badges etc.): drop the link chrome */
+
+body.vscode-body a:has(> img) {
+    padding: 0;
+    margin: 0;
+    background: none;
+    border-radius: 0;
+  }
+
+body.vscode-body a:has(> img)::before {
+    content: none;
+  }
+
+body.vscode-body a:has(> img):hover {
+    background: none;
+  }
+
+body.vscode-body a:has(> img):hover::before {
+    transform: none;
+  }
+
+body.vscode-body strong {
+    color: var(--nx-element);
+    font-weight: 700;
+    display: inline;
+    position: relative;
+    border-bottom: 2px solid transparent;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    padding: 0 2px;
+    transition: border-color 0.3s ease, color 0.3s ease, text-shadow 0.3s ease;
+  }
+
+body.vscode-body strong:hover {
+    border-bottom-color: var(--nx-element-shallow);
+    text-shadow: 0 2px 8px var(--nx-element-so-shallow);
+  }
+
+body.vscode-body em {
+    font-style: italic;
+    color: var(--nx-text-muted);
+    text-decoration: none !important;
+    padding: 0 2px 1px;
+    background-repeat: repeat-x;
+    background-position: 0 100%;
+    background-size: 6px 3px;
+    background-image: linear-gradient(
+      -45deg,
+      transparent 35%,
+      var(--nx-element-shallow) 35%,
+      var(--nx-element-shallow) 65%,
+      transparent 65%
+    );
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    transition: color 0.2s ease, background-image 0.2s ease;
+  }
+
+body.vscode-body em:hover {
+    color: var(--nx-element);
+    background-image: linear-gradient(
+      -45deg,
+      transparent 35%,
+      var(--nx-element) 35%,
+      var(--nx-element) 65%,
+      transparent 65%
+    );
+  }
+
+body.vscode-body del {
+    text-decoration: line-through;
+    text-decoration-color: var(--nx-element);
+    color: var(--nx-text-dim);
+    transition: all 0.3s ease;
+  }
+
+body.vscode-body del:hover {
+    opacity: 0.6;
+    text-decoration-color: var(--nx-element-deep);
+    cursor: not-allowed;
+  }
+
+body.vscode-body mark {
+    background-color: transparent;
+    color: inherit;
+    padding: 0 2px;
+    margin: 0;
+    border-radius: 4px;
+    font-weight: inherit;
+    position: relative;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    background-image: linear-gradient(
+      to top,
+      var(--nx-element-so-shallow),
+      var(--nx-element-so-shallow)
+    );
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 100% 40%;
+    transition: background-size 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+      color 0.3s ease, border-radius 0.3s ease;
+  }
+
+body.vscode-body mark:hover {
+    background-size: 100% 100%;
+    border-radius: 6px;
+  }
+
+body.vscode-body mark::before,
+  body.vscode-body mark::after {
+    content: none !important;
+    display: none !important;
+  }
+
+/* ===== Inline code ===== */
+
+body.vscode-body code {
+    color: var(--nx-linecode);
+    background-color: var(--nx-linecode-bg);
+    padding: 0.15em 0.4em;
+    margin: 0 2px;
+    border-radius: 4px;
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 0.9em;
+    vertical-align: middle;
+    word-break: break-word;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+body.vscode-body code:not(.hljs):hover {
+    background-color: var(--nx-element);
+    color: #fff;
+    transform: scale(1.04);
+    box-shadow: 0 4px 10px var(--nx-element-so-shallow);
+  }
+
+/* ===== Fenced code block (mac-style chrome) ===== */
+
+body.vscode-body pre {
+    margin: 16px 0;
+    overflow: auto;
+    padding: 16px 18px;
+    color: var(--nx-text);
+    background: var(--nx-surface);
+    border-radius: 6px;
+  }
+
+/* Nexora wraps each fenced block in .nexora-code-block for the mac dots +
+     language label. The injected script produces that wrapper. */
+
+body.vscode-body .nexora-code-block {
+    position: relative;
+    margin: 18px 0;
+    overflow: hidden;
+    background: var(--nx-surface);
+    border: 1px solid var(--nx-code-border);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px var(--nx-shadow-code);
+  }
+
+body.vscode-body .nexora-code-block::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 30px;
+    background: color-mix(in srgb, var(--nx-line-strong) 30%, transparent);
+    border-bottom: 1px solid var(--nx-code-header-border);
+  }
+
+body.vscode-body .nexora-code-block::after {
+    content: "";
+    position: absolute;
+    top: 10px;
+    left: 14px;
+    width: 40px;
+    height: 12px;
+    background: radial-gradient(circle at 6px 6px, #ff5f56 4px, transparent 5px),
+      radial-gradient(circle at 20px 6px, #ffbd2e 4px, transparent 5px),
+      radial-gradient(circle at 34px 6px, #27c93f 4px, transparent 5px);
+    pointer-events: none;
+  }
+
+body.vscode-body .nexora-code-block pre {
+    margin: 0;
+    padding: 40px 20px 18px;
+    border-radius: 0;
+    background: transparent;
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: calc(13px * var(--nexora-font-scale));
+    line-height: 1.7;
+    tab-size: 2;
+  }
+
+body.vscode-body .nexora-code-block pre code,
+  body.vscode-body .nexora-code-block code {
+    display: block;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    background: transparent;
+    border-radius: 0;
+    vertical-align: baseline;
+    transition: none;
+  }
+
+body.vscode-body .nexora-code-block pre code:hover,
+  body.vscode-body .nexora-code-block code:hover {
+    background: transparent;
+    color: inherit;
+    transform: none;
+    box-shadow: none;
+  }
+
+body.vscode-body .nexora-code-language {
+    position: absolute;
+    z-index: 1;
+    top: 7px;
+    right: 12px;
+    display: inline-flex;
+    align-items: center;
+    min-height: 16px;
+    padding: 1px 8px;
+    color: var(--nx-text-muted);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+    text-transform: lowercase;
+    -webkit-user-select: none;
+    user-select: none;
+    pointer-events: none;
+  }
+
+/* highlight.js token colours (used when VS Code's preview emits .hljs spans,
+     and as a graceful match for any hljs-style tokens). */
+
+body.vscode-body .hljs-comment,
+  body.vscode-body .hljs-quote {
+    color: var(--nx-text-dim) !important;
+    font-style: italic;
+  }
+
+body.vscode-body .hljs-keyword,
+  body.vscode-body .hljs-selector-tag,
+  body.vscode-body .hljs-literal,
+  body.vscode-body .hljs-meta .hljs-keyword {
+    color: var(--nx-coral) !important;
+    font-weight: 600;
+  }
+
+body.vscode-body .hljs-string,
+  body.vscode-body .hljs-doctag,
+  body.vscode-body .hljs-regexp {
+    color: var(--nx-acid) !important;
+  }
+
+body.vscode-body .hljs-number,
+  body.vscode-body .hljs-symbol,
+  body.vscode-body .hljs-bullet {
+    color: var(--nx-amber) !important;
+  }
+
+body.vscode-body .hljs-title,
+  body.vscode-body .hljs-function,
+  body.vscode-body .hljs-title\.function_,
+  body.vscode-body .hljs-class .hljs-title {
+    color: var(--nx-signal) !important;
+    font-weight: 600;
+  }
+
+body.vscode-body .hljs-type,
+  body.vscode-body .hljs-built_in,
+  body.vscode-body .hljs-builtin-name {
+    color: var(--nx-signal-dim) !important;
+  }
+
+body.vscode-body .hljs-params,
+  body.vscode-body .hljs-variable,
+  body.vscode-body .hljs-template-variable {
+    color: var(--nx-text) !important;
+  }
+
+body.vscode-body .hljs-attr,
+  body.vscode-body .hljs-attribute,
+  body.vscode-body .hljs-property {
+    color: var(--nx-signal-dim) !important;
+  }
+
+body.vscode-body .hljs-meta {
+    color: var(--nx-text-muted) !important;
+  }
+
+body.vscode-body .hljs-tag,
+  body.vscode-body .hljs-name {
+    color: var(--nx-coral) !important;
+  }
+
+body.vscode-body .hljs-selector-id,
+  body.vscode-body .hljs-selector-class {
+    color: var(--nx-amber) !important;
+  }
+
+body.vscode-body .hljs-template-tag {
+    color: var(--nx-signal-dim) !important;
+  }
+
+body.vscode-body .hljs-link {
+    color: var(--nx-signal) !important;
+    text-decoration: underline;
+  }
+
+body.vscode-body .hljs-emphasis {
+    font-style: italic;
+  }
+
+body.vscode-body .hljs-strong {
+    font-weight: 700;
+  }
+
+body.vscode-body .hljs-addition {
+    color: var(--nx-acid) !important;
+  }
+
+body.vscode-body .hljs-deletion {
+    color: var(--nx-coral) !important;
+  }
+
+body.vscode-body kbd {
+    display: inline-block;
+    min-width: 1.6em;
+    text-align: center;
+    padding: 3px 6px;
+    margin: 0 4px;
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 0.9em;
+    line-height: 1.4;
+    font-weight: 600;
+    border-radius: 4px;
+    background-color: var(--nx-bg-raised);
+    color: var(--nx-element-deep);
+    border: 1px solid var(--nx-element);
+    border-bottom-width: 3px;
+    box-shadow: 0 2px 0 var(--nx-element-shallow);
+    transition: all 0.15s cubic-bezier(0.25, 0.8, 0.25, 1);
+    transform: translateY(0);
+  }
+
+body.vscode-body kbd:hover {
+    border-bottom-width: 1px;
+    transform: translateY(2px);
+    background-color: var(--nx-element-soo-shallow);
+    box-shadow: 0 0 0 transparent;
+    color: var(--nx-element-deep);
+  }
+
+/* ===== Blockquote ===== */
+
+body.vscode-body blockquote {
+    position: relative;
+    margin: 20px 0;
+    padding: 16px 20px 16px 48px;
+    background-color: var(--nx-element-soo-shallow);
+    border: none;
+    border-radius: 12px;
+    color: var(--nx-text-muted);
+    line-height: 1.7;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+      background-color 0.3s ease;
+  }
+
+body.vscode-body blockquote::before {
+    content: "✨";
+    position: absolute;
+    left: 16px;
+    top: 16px;
+    font-size: 18px;
+    line-height: 1;
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji",
+      sans-serif;
+  }
+
+body.vscode-body blockquote p {
+    color: var(--nx-text-muted);
+    margin-bottom: 0.5em;
+  }
+
+body.vscode-body blockquote p:last-child {
+    margin-bottom: 0;
+  }
+
+body.vscode-body blockquote:hover {
+    transform: scale(1.01);
+    background-color: var(--nx-element-so-shallow);
+  }
+
+body.vscode-body blockquote blockquote {
+    margin: 10px 0;
+    background-color: var(--nx-element-so-shallow);
+    border-left: 3px solid var(--nx-element-shallow);
+    border-radius: 8px;
+  }
+
+body.vscode-body blockquote blockquote::before {
+    left: 12px;
+    top: 12px;
+    font-size: 15px;
+  }
+
+/* GitHub-style callouts: > [!NOTE] / [!TIP] / [!WARNING] / [!IMPORTANT] / [!CAUTION] */
+
+body.vscode-body .nexora-alert {
+    padding: 14px 18px;
+    margin: 20px 0;
+    color: var(--nx-text);
+    border: none;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    line-height: 1.7;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+      box-shadow 0.3s ease, background-color 0.3s ease;
+  }
+
+body.vscode-body .nexora-alert::before {
+    content: none;
+  }
+
+body.vscode-body .nexora-alert p {
+    color: inherit;
+    margin-bottom: 0.5em;
+  }
+
+body.vscode-body .nexora-alert p:last-child {
+    margin-bottom: 0;
+  }
+
+body.vscode-body .nexora-alert:hover {
+    transform: scale(1.01) translateY(-2px);
+    box-shadow: 0 6px 20px var(--nx-shadow-alert);
+  }
+
+body.vscode-body .nexora-alert-text-container {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: var(--nx-alert-pill-bg);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    padding: 2px 12px;
+    border-radius: 50px;
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    position: relative;
+    z-index: 2;
+  }
+
+body.vscode-body .nexora-alert-icon {
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji",
+      sans-serif;
+    font-size: 15px;
+    line-height: 1;
+  }
+
+body.vscode-body .nexora-alert::after {
+    content: "";
+    position: absolute;
+    right: -10px;
+    bottom: -12px;
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji",
+      sans-serif;
+    font-size: 64px;
+    line-height: 1;
+    opacity: 0.12;
+    transform: rotate(-15deg);
+    pointer-events: none;
+    z-index: 0;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+body.vscode-body .nexora-alert:hover::after {
+    transform: rotate(0) scale(1.1);
+    opacity: 0.2;
+    right: 0;
+    bottom: -4px;
+  }
+
+body.vscode-body .nexora-alert-note {
+    background-color: rgba(108, 92, 231, var(--nx-callout-a));
+  }
+
+body.vscode-body .nexora-alert-text-note {
+    color: #6c5ce7;
+  }
+
+body.vscode-body .nexora-alert-note:hover {
+    background-color: rgba(108, 92, 231, var(--nx-callout-a-hover));
+  }
+
+body.vscode-body .nexora-alert-note::after {
+    content: "📝";
+  }
+
+body.vscode-body .nexora-alert-tip {
+    background-color: rgba(0, 184, 148, var(--nx-callout-a));
+  }
+
+body.vscode-body .nexora-alert-text-tip {
+    color: #00b894;
+  }
+
+body.vscode-body .nexora-alert-tip:hover {
+    background-color: rgba(0, 184, 148, var(--nx-callout-a-hover));
+  }
+
+body.vscode-body .nexora-alert-tip::after {
+    content: "💡";
+  }
+
+body.vscode-body .nexora-alert-warning {
+    background-color: rgba(253, 203, 110, var(--nx-callout-a));
+  }
+
+body.vscode-body .nexora-alert-text-warning {
+    color: #e17055;
+  }
+
+body.vscode-body .nexora-alert-warning:hover {
+    background-color: rgba(253, 203, 110, var(--nx-callout-a-hover));
+  }
+
+body.vscode-body .nexora-alert-warning::after {
+    content: "⚠️";
+  }
+
+body.vscode-body .nexora-alert-important {
+    background-color: rgba(255, 118, 117, var(--nx-callout-a));
+  }
+
+body.vscode-body .nexora-alert-text-important {
+    color: #ff7675;
+  }
+
+body.vscode-body .nexora-alert-important:hover {
+    background-color: rgba(255, 118, 117, var(--nx-callout-a-hover));
+  }
+
+body.vscode-body .nexora-alert-important::after {
+    content: "📌";
+  }
+
+body.vscode-body .nexora-alert-caution {
+    background-color: rgba(214, 48, 49, var(--nx-callout-a));
+  }
+
+body.vscode-body .nexora-alert-text-caution {
+    color: #d63031;
+  }
+
+body.vscode-body .nexora-alert-caution:hover {
+    background-color: rgba(214, 48, 49, var(--nx-callout-a-hover));
+  }
+
+body.vscode-body .nexora-alert-caution::after {
+    content: "🔥";
+  }
+
+/* ===== Lists ===== */
+
+body.vscode-body ul,
+  body.vscode-body ol {
+    margin-top: 4px;
+    margin-left: 12px;
+    margin-bottom: 10px;
+    padding-left: 18px;
+  }
+
+body.vscode-body ul {
+    list-style-type: disc;
+  }
+
+body.vscode-body ul ul {
+    list-style-type: circle;
+  }
+
+body.vscode-body ul ul ul {
+    list-style-type: square;
+  }
+
+body.vscode-body ol {
+    list-style-type: decimal;
+  }
+
+body.vscode-body ol ol {
+    list-style-type: lower-alpha;
+  }
+
+body.vscode-body ol ol ol {
+    list-style-type: lower-roman;
+  }
+
+body.vscode-body li {
+    margin: 0.3rem 0;
+  }
+
+body.vscode-body li::marker {
+    color: var(--nx-element-deep);
+  }
+
+body.vscode-body li p {
+    margin: 4px 0;
+  }
+
+/* ===== HR ===== */
+
+body.vscode-body hr {
+    border: none;
+    border-top: 3px dashed var(--nx-element-shallow);
+    margin: 30px 0;
+    opacity: 0.6;
+    transform: scaleX(0.85);
+    transition: all 0.4s ease;
+  }
+
+body.vscode-body hr:hover {
+    transform: scaleX(1);
+    border-color: var(--nx-element);
+    opacity: 1;
+  }
+
+/* ===== Table ===== */
+
+body.vscode-body table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    margin: 20px 0;
+    border: 1px solid var(--nx-element-shallow);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+body.vscode-body table td,
+  body.vscode-body table th {
+    padding: 9px 13px;
+    color: var(--nx-text);
+    border-right: 1px solid var(--nx-table-border);
+    border-bottom: 1px solid var(--nx-table-border);
+    transition: all 0.2s ease;
+  }
+
+body.vscode-body table td:last-child,
+  body.vscode-body table th:last-child {
+    border-right: none;
+  }
+
+body.vscode-body table tr:last-child td {
+    border-bottom: none;
+  }
+
+body.vscode-body table th {
+    background-color: var(--nx-element-soo-shallow);
+    color: var(--nx-element-deep);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+body.vscode-body table tbody tr {
+    transition: background-color 0.2s ease;
+  }
+
+body.vscode-body table tbody tr:nth-child(even) {
+    background-color: var(--nx-element-soo-shallow);
+  }
+
+body.vscode-body table tbody tr:hover {
+    background-color: var(--nx-element-so-shallow);
+  }
+
+body.vscode-body table tbody td:hover {
+    background-color: var(--nx-element-soo-shallow);
+    color: var(--nx-element-deep);
+    box-shadow: inset 0 0 0 1px var(--nx-element-shallow);
+  }
+
+/* ===== Image / figure ===== */
+
+body.vscode-body img {
+    border-radius: 10px;
+    display: inline-block;
+    margin: 14px 4px;
+    object-fit: contain;
+    max-width: 100%;
+    height: auto;
+    cursor: zoom-in;
+    -webkit-user-drag: none;
+    box-shadow: 0 4px 8px -2px var(--nx-shadow-img);
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+body.vscode-body p > img:only-child {
+    display: block;
+    margin: 18px auto;
+  }
+
+body.vscode-body img:hover {
+    transform: scale(1.02);
+    box-shadow: 0 12px 24px -4px var(--nx-element-so-shallow);
+  }
+
+body.vscode-body a > img {
+    margin: 0 3px;
+    border-radius: 3px;
+    box-shadow: none;
+    display: inline-block;
+    vertical-align: middle;
+    height: auto;
+  }
+
+body.vscode-body a > img:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+body.vscode-body figure {
+    margin: 18px 0;
+    text-align: center;
+  }
+
+body.vscode-body figure > img {
+    display: block;
+    margin: 0 auto;
+  }
+
+body.vscode-body figcaption {
+    display: block;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--nx-text-dim);
+    text-align: center;
+    line-height: 1.5;
+    transition: color 0.3s ease;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+body.vscode-body figure:hover > figcaption {
+    color: var(--nx-element-deep);
+  }
+
+/* ===== Footnotes ===== */
+
+body.vscode-body sup.footnote-ref {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    vertical-align: super;
+    line-height: 1;
+    margin: 0 2px;
+  }
+
+body.vscode-body sup.footnote-ref > a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--nx-element-so-shallow);
+    color: var(--nx-element-deep) !important;
+    text-decoration: none;
+    font-size: 10px;
+    font-weight: 600;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+body.vscode-body sup.footnote-ref > a::before {
+    content: none;
+  }
+
+body.vscode-body sup.footnote-ref > a:hover {
+    background: var(--nx-element);
+    color: #fff !important;
+    transform: translateY(-1px);
+  }
+
+body.vscode-body sup.footnote-ref > a:hover::before {
+    transform: none;
+  }
+
+body.vscode-body section.footnotes {
+    margin: 28px 0 16px;
+    padding: 16px 20px;
+    background: var(--nx-element-soo-shallow);
+    border: 1px solid var(--nx-element-shallow);
+    border-radius: 8px;
+    position: relative;
+  }
+
+body.vscode-body section.footnotes::before {
+    content: "脚注";
+    display: block;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--nx-footnote-border);
+    color: var(--nx-text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+
+body.vscode-body section.footnotes > ol {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+body.vscode-body section.footnotes li {
+    margin: 6px 0;
+    color: var(--nx-text-muted);
+    line-height: 1.6;
+  }
+
+body.vscode-body section.footnotes li::marker {
+    color: var(--nx-element-deep);
+  }
+
+body.vscode-body section.footnotes a.footnote-backref {
+    display: inline-block;
+    font-size: 12px;
+    color: var(--nx-element-deep);
+    text-decoration: none;
+    margin-left: 4px;
+    transition: all 0.2s ease;
+  }
+
+body.vscode-body section.footnotes a.footnote-backref::before {
+    content: none;
+  }
+
+body.vscode-body section.footnotes a.footnote-backref:hover {
+    color: var(--nx-element);
+    transform: scale(1.2);
+  }
+
+/* ===== Task-list checkboxes ===== */
+
+body.vscode-body li:has(> input[type="checkbox"]) {
+    list-style: none;
+    padding-left: 2px;
+  }
+
+body.vscode-body input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    margin: 0 7px 0 0;
+    vertical-align: middle;
+    position: relative;
+    border: 1.5px solid var(--nx-checkbox-border);
+    border-radius: 4px;
+    background: var(--nx-surface-raised);
+    cursor: default;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+body.vscode-body input[type="checkbox"]:checked {
+    background: var(--nx-signal);
+    border-color: var(--nx-signal);
+  }
+
+body.vscode-body input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3.5px;
+    top: 0.5px;
+    width: 4px;
+    height: 8px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+body.vscode-body li:has(> input[type="checkbox"]:checked) {
+    color: var(--nx-text-muted);
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--nx-text-muted) 45%, transparent);
+  }
+
+/* ===== YAML front matter ===== */
+
+body.vscode-body .nexora-front-matter {
+    margin: 18px 0;
+    padding: 16px 20px;
+    background: var(--nx-surface);
+    border: 1px dashed var(--nx-frontmatter-border);
+    border-radius: 8px;
+    position: relative;
+    overflow: auto;
+  }
+
+body.vscode-body .nexora-front-matter::before {
+    content: "YAML";
+    position: absolute;
+    top: -8px;
+    left: 14px;
+    padding: 1px 7px;
+    background: var(--nx-bg-raised);
+    color: var(--nx-signal);
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    border-radius: 3px;
+  }
+
+body.vscode-body .nexora-front-matter code {
+    display: block;
+    padding: 0;
+    margin: 0;
+    color: var(--nx-text-muted);
+    background: transparent;
+    border-radius: 0;
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    vertical-align: baseline;
+    transition: none;
+  }
+
+body.vscode-body .nexora-front-matter code:hover {
+    background: transparent;
+    color: var(--nx-text-muted);
+    transform: none;
+    box-shadow: none;
+  }
+
+/* ===== [TOC] directory block ===== */
+
+body.vscode-body .nexora-toc {
+    margin: 20px 0;
+    padding: 16px 20px;
+    background: var(--nx-surface);
+    border: 1px solid var(--nx-toc-border);
+    border-radius: 12px;
+    position: relative;
+  }
+
+body.vscode-body .nexora-toc::before {
+    content: "目录";
+    display: block;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--nx-footnote-border);
+    color: var(--nx-text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+
+body.vscode-body .nexora-toc-item {
+    display: block;
+    padding: 4px 8px;
+    margin: 0;
+    color: var(--nx-text-muted);
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    transition: all 0.2s ease;
+  }
+
+body.vscode-body .nexora-toc-item::before {
+    content: none;
+  }
+
+body.vscode-body .nexora-toc-item:hover {
+    background: var(--nx-element-soo-shallow);
+    color: var(--nx-element);
+  }
+
+body.vscode-body .nexora-toc-item:hover::before {
+    transform: none;
+  }
+
+body.vscode-body .nexora-toc-level-2 {
+    padding-left: 20px;
+  }
+
+body.vscode-body .nexora-toc-level-3 {
+    padding-left: 36px;
+  }
+
+body.vscode-body .nexora-toc-level-4 {
+    padding-left: 52px;
+  }
+
+body.vscode-body .nexora-toc-level-5 {
+    padding-left: 68px;
+  }
+
+body.vscode-body .nexora-toc-level-6 {
+    padding-left: 84px;
+  }
+
+body.vscode-body.vscode-dark,
+  body.vscode-body.vscode-high-contrast {
+    /* Bright accents need dark heading text; shadows deepen on dark themes */
+    --nx-h2-fg: #1a1a1a;
+    --nx-callout-a: 0.18;
+    --nx-callout-a-hover: 0.24;
+    --nx-shadow-code: color-mix(in srgb, #000 22%, transparent);
+    --nx-shadow-img: color-mix(in srgb, #000 27%, transparent);
+    --nx-shadow-alert: color-mix(in srgb, #000 32%, transparent);
+  }
+
+body.vscode-body.vscode-dark .nexora-alert-text-note, body.vscode-body.vscode-high-contrast .nexora-alert-text-note {
+      color: #9b8cf0;
+    }
+
+body.vscode-body.vscode-dark .nexora-alert-text-tip, body.vscode-body.vscode-high-contrast .nexora-alert-text-tip {
+      color: #3dd8bd;
+    }
+
+body.vscode-body.vscode-dark .nexora-alert-text-warning, body.vscode-body.vscode-high-contrast .nexora-alert-text-warning {
+      color: #f3a58c;
+    }
+
+body.vscode-body.vscode-dark .nexora-alert-text-important, body.vscode-body.vscode-high-contrast .nexora-alert-text-important {
+      color: #ff9b9a;
+    }
+
+body.vscode-body.vscode-dark .nexora-alert-text-caution, body.vscode-body.vscode-high-contrast .nexora-alert-text-caution {
+      color: #ff5b5c;
+    }
+
+@media print {
+  @page {
+    margin: 10mm;
+    size: A4;
+  }
+  body.vscode-body {
+    max-width: none;
+    padding: 0;
+    margin: 0;
+    background: #fff !important;
+  }
+  body.vscode-body h1,
+  body.vscode-body h2,
+  body.vscode-body h3,
+  body.vscode-body h4,
+  body.vscode-body h5,
+  body.vscode-body h6 {
+    page-break-after: avoid;
+    transform: none !important;
+  }
+  body.vscode-body p {
+    orphans: 2;
+    widows: 2;
+  }
+  body.vscode-body figure,
+  body.vscode-body pre,
+  body.vscode-body .nexora-code-block,
+  body.vscode-body table,
+  body.vscode-body blockquote,
+  body.vscode-body tr,
+  body.vscode-body img,
+  body.vscode-body li {
+    page-break-inside: avoid;
+  }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

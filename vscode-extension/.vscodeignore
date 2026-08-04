@@ -1,0 +1,11 @@
+.vscode/**
+.vscode-test/**
+node_modules/**
+src/**
+**/*.map
+**/*.ts
+package-lock.json
+yarn.lock
+*.log
+sample.md
+media/nexora.src.css
