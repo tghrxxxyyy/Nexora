@@ -12,7 +12,7 @@ tags: [markdown, nexora, vscode]
 
 ### 三级标题 · 装饰条
 
-正文段落,这里是 **加粗(strong)**、*斜体(em)*、~~删除线(del)~~、`行内 code` 与 <mark>标记(mark)</mark>。还有一个 [带图标的链接](https://code.visualstudio.com)。
+正文段落,这里是 **加粗(strong)**、*斜体(em)*、~~删除线(del)~~、`行内 code` 与 标记(mark)。还有一个 [带图标的链接](https://code.visualstudio.com)。
 
 #### 四级标题 · 实心圆点
 
@@ -49,7 +49,7 @@ void main() {
 }
 ```
 
-```ts
+```typescript
 function greet(name: string): string {
   return `Hello, ${name}!`;
 }
@@ -76,7 +76,7 @@ flowchart LR
 
 1. 有序第一
 2. 有序第二
-   1. 嵌套有序
+  1. 嵌套有序
 
 ## 表格
 
@@ -93,8 +93,8 @@ flowchart LR
 
 ## 脚注与键盘
 
-这是一段带脚注的句子[^1],快捷键 `Cmd` + `Shift` + `P`。
-
-[^1]: 脚注内容会聚拢到底部卡片里。
+这是一段带脚注的句子^[1](#fn-1)^,快捷键 `Cmd` + `Shift` + `P`。
 
 > 在标题上悬停看动画;在 **加粗**、*斜体*、`code`、链接上悬停看交互反馈。
+
+[^1]: 脚注内容会聚拢到底部卡片里。

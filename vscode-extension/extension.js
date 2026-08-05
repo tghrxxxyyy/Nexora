@@ -1,17 +1,18 @@
 /**
  * Nexora Markdown Preview — markdown-it plugin host.
  *
- * VS Code's markdown preview strips YAML front matter at the source level before
- * it ever reaches the DOM (controlled by `markdown.preview.frontMatter`, which
- * defaults to "hide"). A previewScripts/previewStyles approach therefore can't
- * see the front matter text to restyle it.
+ * VS Code owns the Markdown parser, so syntax-level features must be installed
+ * here instead of being guessed from the rendered DOM. In particular, recent
+ * VS Code versions render YAML front matter as a table by default and core
+ * markdown-it does not support footnotes.
  *
- * Through the `markdown.markdownItPlugins` contribution point we register a
- * block rule that, when the user opts in via `markdown.preview.frontMatter: "show"`,
- * captures the leading `--- ... ---` block and emits Nexora's
- * `<pre class="nexora-front-matter">` structure so the existing CSS applies.
+ * This plugin captures front matter before VS Code's own `front_matter` rule and
+ * enables markdown-it-footnote. The resulting HTML is the same structure that
+ * Nexora's desktop renderer styles.
  */
 "use strict";
+
+const markdownItFootnote = require("markdown-it-footnote");
 
 function escapeHtml(value) {
   return value
@@ -21,7 +22,11 @@ function escapeHtml(value) {
 }
 
 function nexoraFrontMatter(md) {
-  md.block.ruler.before("hr", "nexora_front_matter", function (
+  // VS Code installs its own front_matter rule *after* contributed plugins and
+  // inserts it before `fence`. Registering before `hr` therefore loses to the
+  // built-in rule and produces <table class="frontmatter">. Being before
+  // `fence` keeps this rule ahead even after VS Code adds its rule later.
+  md.block.ruler.before("fence", "nexora_front_matter", function (
     state,
     startLine,
     endLine,
@@ -64,10 +69,70 @@ function nexoraFrontMatter(md) {
   });
 }
 
+function normalizeFenceLanguage(value) {
+  var lang = (value || "").toLowerCase();
+  var aliases = {
+    html: "xml", htm: "xml", svg: "xml", xhtml: "xml",
+    js: "javascript", jsx: "javascript",
+    ts: "typescript", tsx: "typescript",
+    py: "python", ipython: "python",
+    sh: "bash", zsh: "bash", ksh: "bash",
+    console: "shell", shellsession: "shell",
+    yml: "yaml", md: "markdown",
+    h: "c", cc: "cpp", "c++": "cpp", cxx: "cpp", hpp: "cpp", hh: "cpp",
+    cs: "csharp", "c#": "csharp",
+    objc: "objectivec", "obj-c": "objectivec", "objective-c": "objectivec",
+    golang: "go", rs: "rust", rb: "ruby", kt: "kotlin",
+    pl: "perl", make: "makefile", docker: "dockerfile",
+    toml: "ini", cfg: "ini", ps1: "powershell",
+    bat: "dos", batch: "dos", cmd: "dos", fs: "fsharp", vb: "vbnet",
+    asm: "x86asm", nasm: "x86asm", erl: "erlang", ex: "elixir", exs: "elixir",
+    clj: "clojure", hs: "haskell", jl: "julia", gql: "graphql",
+    proto: "protobuf", sass: "scss"
+  };
+  return aliases[lang] || lang || "text";
+}
+
+function nexoraFences(md) {
+  // Produce Nexora's final DOM during Markdown rendering. Waiting until the
+  // preview script sees a generic <pre><code> is racy: VS Code and other
+  // preview contributions may have already highlighted or replaced its body.
+  md.renderer.rules.fence = function (tokens, index, options, env, renderer) {
+    var token = tokens[index];
+    var info = (token.info || "").trim().split(/\s+/)[0];
+    var language = normalizeFenceLanguage(info);
+
+    if (language === "mermaid") {
+      token.attrJoin("class", "nexora-mermaid");
+      token.attrSet("data-nexora-mermaid-source", token.content);
+      return (
+        "<div" + renderer.renderAttrs(token) + ">" +
+        '<div class="nexora-mermaid-canvas">' +
+        md.utils.escapeHtml(token.content) +
+        "</div>" +
+        "</div>\n"
+      );
+    }
+
+    token.attrJoin("class", "nexora-code-block");
+    token.attrSet("data-nexora-language", language);
+    var escapedLanguage = md.utils.escapeHtml(language);
+    return (
+      "<div" + renderer.renderAttrs(token) + ">" +
+      '<span class="nexora-code-language">' + escapedLanguage + "</span>" +
+      '<pre><code class="hljs language-' + escapedLanguage + '">' +
+      md.utils.escapeHtml(token.content) +
+      "</code></pre></div>\n"
+    );
+  };
+}
+
 function activate() {
   return {
     extendMarkdownIt: function (md) {
       md.use(nexoraFrontMatter);
+      md.use(markdownItFootnote);
+      md.use(nexoraFences);
       return md;
     },
   };

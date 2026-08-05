@@ -2,7 +2,7 @@
   "name": "nexora-markdown",
   "displayName": "Nexora Markdown Preview",
   "description": "Nexora 风格的 Markdown 预览主题:渐变标题、悬停动画、GitHub callouts、Mac 风代码块、highlight.js 与 Mermaid。",
-  "version": "0.4.0",
+  "version": "0.4.5",
   "publisher": "nexora",
   "main": "extension.js",
   "activationEvents": [
@@ -22,7 +22,10 @@
   ],
   "scripts": {
     "build:css": "postcss media/nexora.src.css --use postcss-nested -o media/nexora.css --no-map",
-    "package": "npm run build:css && npx --yes @vscode/vsce@latest package --no-git-tag-version --allow-missing-repository"
+    "build:highlight": "node scripts/build-highlight.js",
+    "build": "npm run build:css && npm run build:highlight",
+    "test": "node --test test/*.test.js && node --check media/nexora.js",
+    "package": "npm run build && npm run test && npx --yes @vscode/vsce@latest package --no-git-tag-version --allow-missing-repository"
   },
   "license": "MIT",
   "repository": {
@@ -41,8 +44,14 @@
     "markdown.markdownItPlugins": true
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "14.3.0",
     "postcss": "^8.5.25",
     "postcss-cli": "^11.0.1",
     "postcss-nested": "^7.0.2"
+  },
+  "dependencies": {
+    "markdown-it-footnote": "4.0.0"
   }
 }

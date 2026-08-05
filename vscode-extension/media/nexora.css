@@ -45,7 +45,10 @@ body.vscode-body {
   /* ===== Base colors follow the active VS Code theme ===== */
   --nx-bg: var(--vscode-editor-background, #ffffff);
   --nx-bg-raised: var(--vscode-editor-background, #ffffff);
-  --nx-surface: var(--vscode-textBlockQuote-background, color-mix(in srgb, var(--vscode-editor-foreground, #263440) 5%, transparent));
+  /* Nexora surfaces are a subtle foreground tint over the page background.
+     textBlockQuote-background can be pure black in some VS Code themes, which
+     made fenced code look unrelated to the desktop renderer. */
+  --nx-surface: color-mix(in srgb, var(--nx-bg) 95%, var(--nx-text) 5%);
   --nx-surface-raised: var(--vscode-editorWidget-background, var(--vscode-editor-background, #ffffff));
   --nx-surface-hover: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-editor-foreground, #263440) 6%, transparent));
   --nx-line: var(--vscode-editorGroup-border, #e9eff5);
@@ -85,7 +88,7 @@ body.vscode-body {
   --nx-toc-border: color-mix(in srgb, var(--nx-line-strong) 40%, transparent);
   --nx-footnote-border: color-mix(in srgb, var(--nx-line-strong) 30%, transparent);
   --nx-checkbox-border: color-mix(in srgb, var(--nx-line-strong) 65%, transparent);
-  --nx-alert-pill-bg: color-mix(in srgb, var(--nx-bg) 80%, transparent);
+  --nx-alert-pill-bg: color-mix(in srgb, #fff 70%, transparent);
   --nx-callout-a: 0.12;
   --nx-callout-a-hover: 0.17;
 
@@ -520,7 +523,8 @@ body.vscode-body .nexora-code-block {
     position: relative;
     margin: 18px 0;
     overflow: hidden;
-    background: var(--nx-surface);
+    background: var(--nx-surface) !important;
+    background-image: none !important;
     border: 1px solid var(--nx-code-border);
     border-radius: 8px;
     box-shadow: 0 2px 8px var(--nx-shadow-code);
@@ -554,11 +558,14 @@ body.vscode-body .nexora-code-block pre {
     margin: 0;
     padding: 40px 20px 18px;
     border-radius: 0;
-    background: transparent;
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0;
     font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
     font-size: calc(13px * var(--nexora-font-scale));
     line-height: 1.7;
     tab-size: 2;
+    white-space: pre;
   }
 
 body.vscode-body .nexora-code-block pre code,
@@ -571,6 +578,12 @@ body.vscode-body .nexora-code-block pre code,
     border-radius: 0;
     vertical-align: baseline;
     transition: none;
+    white-space: inherit;
+  }
+
+body.vscode-body .nexora-code-block .hljs {
+    background: transparent !important;
+    background-color: transparent !important;
   }
 
 body.vscode-body .nexora-code-block pre code:hover,
@@ -861,7 +874,7 @@ body.vscode-body .nexora-alert:hover::after {
   }
 
 body.vscode-body .nexora-alert-note {
-    background-color: rgba(108, 92, 231, var(--nx-callout-a));
+    background-color: rgba(108, 92, 231, var(--nx-callout-a)) !important;
   }
 
 body.vscode-body .nexora-alert-text-note {
@@ -869,7 +882,7 @@ body.vscode-body .nexora-alert-text-note {
   }
 
 body.vscode-body .nexora-alert-note:hover {
-    background-color: rgba(108, 92, 231, var(--nx-callout-a-hover));
+    background-color: rgba(108, 92, 231, var(--nx-callout-a-hover)) !important;
   }
 
 body.vscode-body .nexora-alert-note::after {
@@ -877,7 +890,7 @@ body.vscode-body .nexora-alert-note::after {
   }
 
 body.vscode-body .nexora-alert-tip {
-    background-color: rgba(0, 184, 148, var(--nx-callout-a));
+    background-color: rgba(0, 184, 148, var(--nx-callout-a)) !important;
   }
 
 body.vscode-body .nexora-alert-text-tip {
@@ -885,7 +898,7 @@ body.vscode-body .nexora-alert-text-tip {
   }
 
 body.vscode-body .nexora-alert-tip:hover {
-    background-color: rgba(0, 184, 148, var(--nx-callout-a-hover));
+    background-color: rgba(0, 184, 148, var(--nx-callout-a-hover)) !important;
   }
 
 body.vscode-body .nexora-alert-tip::after {
@@ -893,7 +906,7 @@ body.vscode-body .nexora-alert-tip::after {
   }
 
 body.vscode-body .nexora-alert-warning {
-    background-color: rgba(253, 203, 110, var(--nx-callout-a));
+    background-color: rgba(253, 203, 110, var(--nx-callout-a)) !important;
   }
 
 body.vscode-body .nexora-alert-text-warning {
@@ -901,7 +914,7 @@ body.vscode-body .nexora-alert-text-warning {
   }
 
 body.vscode-body .nexora-alert-warning:hover {
-    background-color: rgba(253, 203, 110, var(--nx-callout-a-hover));
+    background-color: rgba(253, 203, 110, var(--nx-callout-a-hover)) !important;
   }
 
 body.vscode-body .nexora-alert-warning::after {
@@ -909,7 +922,7 @@ body.vscode-body .nexora-alert-warning::after {
   }
 
 body.vscode-body .nexora-alert-important {
-    background-color: rgba(255, 118, 117, var(--nx-callout-a));
+    background-color: rgba(255, 118, 117, var(--nx-callout-a)) !important;
   }
 
 body.vscode-body .nexora-alert-text-important {
@@ -917,7 +930,7 @@ body.vscode-body .nexora-alert-text-important {
   }
 
 body.vscode-body .nexora-alert-important:hover {
-    background-color: rgba(255, 118, 117, var(--nx-callout-a-hover));
+    background-color: rgba(255, 118, 117, var(--nx-callout-a-hover)) !important;
   }
 
 body.vscode-body .nexora-alert-important::after {
@@ -925,7 +938,7 @@ body.vscode-body .nexora-alert-important::after {
   }
 
 body.vscode-body .nexora-alert-caution {
-    background-color: rgba(214, 48, 49, var(--nx-callout-a));
+    background-color: rgba(214, 48, 49, var(--nx-callout-a)) !important;
   }
 
 body.vscode-body .nexora-alert-text-caution {
@@ -933,7 +946,7 @@ body.vscode-body .nexora-alert-text-caution {
   }
 
 body.vscode-body .nexora-alert-caution:hover {
-    background-color: rgba(214, 48, 49, var(--nx-callout-a-hover));
+    background-color: rgba(214, 48, 49, var(--nx-callout-a-hover)) !important;
   }
 
 body.vscode-body .nexora-alert-caution::after {
@@ -1125,7 +1138,119 @@ body.vscode-body figure:hover > figcaption {
     color: var(--nx-element-deep);
   }
 
+/* ===== Mermaid diagrams ===== */
+
+body.vscode-body .nexora-mermaid {
+    margin: 20px 0;
+    padding: 18px;
+    text-align: center;
+    background: var(--nx-surface);
+    border: 1px solid var(--nx-code-border);
+    border-radius: 8px;
+    overflow-x: auto;
+    position: relative;
+  }
+
+body.vscode-body .nexora-mermaid::before {
+    content: "Mermaid";
+    position: absolute;
+    top: -8px;
+    left: 14px;
+    padding: 1px 7px;
+    background: var(--nx-bg-raised);
+    color: var(--nx-signal);
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+
+body.vscode-body .nexora-mermaid > .nexora-mermaid-canvas {
+    min-height: 24px;
+  }
+
+body.vscode-body .nexora-mermaid svg {
+    max-width: 100%;
+    height: auto;
+    display: inline-block;
+  }
+
+body.vscode-body .nexora-mermaid .node circle,
+  body.vscode-body .nexora-mermaid .node ellipse,
+  body.vscode-body .nexora-mermaid .node path,
+  body.vscode-body .nexora-mermaid .node rect {
+    fill: var(--nx-element-soo-shallow) !important;
+    stroke: var(--nx-element) !important;
+    stroke-width: 1.5px !important;
+    transition: all 0.3s ease;
+  }
+
+body.vscode-body .nexora-mermaid .node polygon {
+    fill: var(--nx-element-soo-shallow) !important;
+    stroke: var(--nx-element-deep) !important;
+    stroke-width: 1.5px !important;
+  }
+
+body.vscode-body .nexora-mermaid .edgePath .path,
+  body.vscode-body .nexora-mermaid .flowchart-link {
+    stroke: var(--nx-element-deep) !important;
+    stroke-width: 1.5px !important;
+    opacity: 0.85 !important;
+  }
+
+body.vscode-body .nexora-mermaid .marker path,
+  body.vscode-body .nexora-mermaid marker path {
+    fill: var(--nx-element-deep) !important;
+    stroke: var(--nx-element-deep) !important;
+  }
+
+body.vscode-body .nexora-mermaid .node .label,
+  body.vscode-body .nexora-mermaid .edgeLabel,
+  body.vscode-body .nexora-mermaid .cluster-label text {
+    color: var(--nx-text) !important;
+    fill: var(--nx-text) !important;
+    font-weight: 500 !important;
+  }
+
+body.vscode-body .nexora-mermaid .edgeLabel .label,
+  body.vscode-body .nexora-mermaid .edgeLabel rect {
+    fill: var(--nx-bg-raised) !important;
+    background-color: var(--nx-bg-raised) !important;
+  }
+
+body.vscode-body .nexora-mermaid .cluster rect {
+    fill: var(--nx-element-soo-shallow) !important;
+    stroke: var(--nx-element-shallow) !important;
+    stroke-dasharray: 4px !important;
+  }
+
+body.vscode-body .nexora-mermaid .cluster span,
+  body.vscode-body .nexora-mermaid .cluster-label text {
+    fill: var(--nx-element-deep) !important;
+    color: var(--nx-element-deep) !important;
+    background: transparent !important;
+    font-weight: 700 !important;
+  }
+
+body.vscode-body .nexora-mermaid .error,
+  body.vscode-body .nexora-mermaid.nexora-mermaid-failed > .nexora-mermaid-canvas {
+    color: var(--nx-coral) !important;
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 12px;
+  }
+
+body.vscode-body .nexora-mermaid.nexora-mermaid-failed > .nexora-mermaid-canvas {
+    text-align: left;
+    white-space: pre-wrap;
+  }
+
 /* ===== Footnotes ===== */
+
+body.vscode-body hr.footnotes-sep {
+    display: none;
+  }
 
 body.vscode-body sup.footnote-ref {
     display: inline-block;
@@ -1383,10 +1508,13 @@ body.vscode-body .nexora-toc-level-6 {
 
 body.vscode-body.vscode-dark,
   body.vscode-body.vscode-high-contrast {
-    /* Bright accents need dark heading text; shadows deepen on dark themes */
-    --nx-h2-fg: #1a1a1a;
-    --nx-callout-a: 0.18;
-    --nx-callout-a-hover: 0.24;
+    /* Match Nexora's dark preview: white text and stronger signal glow. */
+    --nx-h2-fg: #fff;
+    --nx-shadow-signal-sm: color-mix(in srgb, var(--nx-signal) 35%, transparent);
+    --nx-shadow-signal-lg: color-mix(in srgb, var(--nx-signal) 45%, transparent);
+    --nx-alert-pill-bg: color-mix(in srgb, #fff 8%, transparent);
+    --nx-callout-a: 0.32;
+    --nx-callout-a-hover: 0.42;
     --nx-shadow-code: color-mix(in srgb, #000 22%, transparent);
     --nx-shadow-img: color-mix(in srgb, #000 27%, transparent);
     --nx-shadow-alert: color-mix(in srgb, #000 32%, transparent);

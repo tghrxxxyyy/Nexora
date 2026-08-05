@@ -45,7 +45,10 @@ body.vscode-body {
   /* ===== Base colors follow the active VS Code theme ===== */
   --nx-bg: var(--vscode-editor-background, #ffffff);
   --nx-bg-raised: var(--vscode-editor-background, #ffffff);
-  --nx-surface: var(--vscode-textBlockQuote-background, color-mix(in srgb, var(--vscode-editor-foreground, #263440) 5%, transparent));
+  /* Nexora surfaces are a subtle foreground tint over the page background.
+     textBlockQuote-background can be pure black in some VS Code themes, which
+     made fenced code look unrelated to the desktop renderer. */
+  --nx-surface: color-mix(in srgb, var(--nx-bg) 95%, var(--nx-text) 5%);
   --nx-surface-raised: var(--vscode-editorWidget-background, var(--vscode-editor-background, #ffffff));
   --nx-surface-hover: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-editor-foreground, #263440) 6%, transparent));
   --nx-line: var(--vscode-editorGroup-border, #e9eff5);
@@ -85,7 +88,7 @@ body.vscode-body {
   --nx-toc-border: color-mix(in srgb, var(--nx-line-strong) 40%, transparent);
   --nx-footnote-border: color-mix(in srgb, var(--nx-line-strong) 30%, transparent);
   --nx-checkbox-border: color-mix(in srgb, var(--nx-line-strong) 65%, transparent);
-  --nx-alert-pill-bg: color-mix(in srgb, var(--nx-bg) 80%, transparent);
+  --nx-alert-pill-bg: color-mix(in srgb, #fff 70%, transparent);
   --nx-callout-a: 0.12;
   --nx-callout-a-hover: 0.17;
 
@@ -471,7 +474,8 @@ body.vscode-body {
     position: relative;
     margin: 18px 0;
     overflow: hidden;
-    background: var(--nx-surface);
+    background: var(--nx-surface) !important;
+    background-image: none !important;
     border: 1px solid var(--nx-code-border);
     border-radius: 8px;
     box-shadow: 0 2px 8px var(--nx-shadow-code);
@@ -502,11 +506,14 @@ body.vscode-body {
     margin: 0;
     padding: 40px 20px 18px;
     border-radius: 0;
-    background: transparent;
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0;
     font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
     font-size: calc(13px * var(--nexora-font-scale));
     line-height: 1.7;
     tab-size: 2;
+    white-space: pre;
   }
   .nexora-code-block pre code,
   .nexora-code-block code {
@@ -518,6 +525,11 @@ body.vscode-body {
     border-radius: 0;
     vertical-align: baseline;
     transition: none;
+    white-space: inherit;
+  }
+  .nexora-code-block .hljs {
+    background: transparent !important;
+    background-color: transparent !important;
   }
   .nexora-code-block pre code:hover,
   .nexora-code-block code:hover {
@@ -771,61 +783,61 @@ body.vscode-body {
     bottom: -4px;
   }
   .nexora-alert-note {
-    background-color: rgba(108, 92, 231, var(--nx-callout-a));
+    background-color: rgba(108, 92, 231, var(--nx-callout-a)) !important;
   }
   .nexora-alert-text-note {
     color: #6c5ce7;
   }
   .nexora-alert-note:hover {
-    background-color: rgba(108, 92, 231, var(--nx-callout-a-hover));
+    background-color: rgba(108, 92, 231, var(--nx-callout-a-hover)) !important;
   }
   .nexora-alert-note::after {
     content: "📝";
   }
   .nexora-alert-tip {
-    background-color: rgba(0, 184, 148, var(--nx-callout-a));
+    background-color: rgba(0, 184, 148, var(--nx-callout-a)) !important;
   }
   .nexora-alert-text-tip {
     color: #00b894;
   }
   .nexora-alert-tip:hover {
-    background-color: rgba(0, 184, 148, var(--nx-callout-a-hover));
+    background-color: rgba(0, 184, 148, var(--nx-callout-a-hover)) !important;
   }
   .nexora-alert-tip::after {
     content: "💡";
   }
   .nexora-alert-warning {
-    background-color: rgba(253, 203, 110, var(--nx-callout-a));
+    background-color: rgba(253, 203, 110, var(--nx-callout-a)) !important;
   }
   .nexora-alert-text-warning {
     color: #e17055;
   }
   .nexora-alert-warning:hover {
-    background-color: rgba(253, 203, 110, var(--nx-callout-a-hover));
+    background-color: rgba(253, 203, 110, var(--nx-callout-a-hover)) !important;
   }
   .nexora-alert-warning::after {
     content: "⚠️";
   }
   .nexora-alert-important {
-    background-color: rgba(255, 118, 117, var(--nx-callout-a));
+    background-color: rgba(255, 118, 117, var(--nx-callout-a)) !important;
   }
   .nexora-alert-text-important {
     color: #ff7675;
   }
   .nexora-alert-important:hover {
-    background-color: rgba(255, 118, 117, var(--nx-callout-a-hover));
+    background-color: rgba(255, 118, 117, var(--nx-callout-a-hover)) !important;
   }
   .nexora-alert-important::after {
     content: "📌";
   }
   .nexora-alert-caution {
-    background-color: rgba(214, 48, 49, var(--nx-callout-a));
+    background-color: rgba(214, 48, 49, var(--nx-callout-a)) !important;
   }
   .nexora-alert-text-caution {
     color: #d63031;
   }
   .nexora-alert-caution:hover {
-    background-color: rgba(214, 48, 49, var(--nx-callout-a-hover));
+    background-color: rgba(214, 48, 49, var(--nx-callout-a-hover)) !important;
   }
   .nexora-alert-caution::after {
     content: "🔥";
@@ -986,7 +998,104 @@ body.vscode-body {
     color: var(--nx-element-deep);
   }
 
+  /* ===== Mermaid diagrams ===== */
+  .nexora-mermaid {
+    margin: 20px 0;
+    padding: 18px;
+    text-align: center;
+    background: var(--nx-surface);
+    border: 1px solid var(--nx-code-border);
+    border-radius: 8px;
+    overflow-x: auto;
+    position: relative;
+  }
+  .nexora-mermaid::before {
+    content: "Mermaid";
+    position: absolute;
+    top: -8px;
+    left: 14px;
+    padding: 1px 7px;
+    background: var(--nx-bg-raised);
+    color: var(--nx-signal);
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+  .nexora-mermaid > .nexora-mermaid-canvas {
+    min-height: 24px;
+  }
+  .nexora-mermaid svg {
+    max-width: 100%;
+    height: auto;
+    display: inline-block;
+  }
+  .nexora-mermaid .node circle,
+  .nexora-mermaid .node ellipse,
+  .nexora-mermaid .node path,
+  .nexora-mermaid .node rect {
+    fill: var(--nx-element-soo-shallow) !important;
+    stroke: var(--nx-element) !important;
+    stroke-width: 1.5px !important;
+    transition: all 0.3s ease;
+  }
+  .nexora-mermaid .node polygon {
+    fill: var(--nx-element-soo-shallow) !important;
+    stroke: var(--nx-element-deep) !important;
+    stroke-width: 1.5px !important;
+  }
+  .nexora-mermaid .edgePath .path,
+  .nexora-mermaid .flowchart-link {
+    stroke: var(--nx-element-deep) !important;
+    stroke-width: 1.5px !important;
+    opacity: 0.85 !important;
+  }
+  .nexora-mermaid .marker path,
+  .nexora-mermaid marker path {
+    fill: var(--nx-element-deep) !important;
+    stroke: var(--nx-element-deep) !important;
+  }
+  .nexora-mermaid .node .label,
+  .nexora-mermaid .edgeLabel,
+  .nexora-mermaid .cluster-label text {
+    color: var(--nx-text) !important;
+    fill: var(--nx-text) !important;
+    font-weight: 500 !important;
+  }
+  .nexora-mermaid .edgeLabel .label,
+  .nexora-mermaid .edgeLabel rect {
+    fill: var(--nx-bg-raised) !important;
+    background-color: var(--nx-bg-raised) !important;
+  }
+  .nexora-mermaid .cluster rect {
+    fill: var(--nx-element-soo-shallow) !important;
+    stroke: var(--nx-element-shallow) !important;
+    stroke-dasharray: 4px !important;
+  }
+  .nexora-mermaid .cluster span,
+  .nexora-mermaid .cluster-label text {
+    fill: var(--nx-element-deep) !important;
+    color: var(--nx-element-deep) !important;
+    background: transparent !important;
+    font-weight: 700 !important;
+  }
+  .nexora-mermaid .error,
+  .nexora-mermaid.nexora-mermaid-failed > .nexora-mermaid-canvas {
+    color: var(--nx-coral) !important;
+    font-family: "Maple Mono", "MapleMonoCN", "SF Mono", Consolas, monospace;
+    font-size: 12px;
+  }
+  .nexora-mermaid.nexora-mermaid-failed > .nexora-mermaid-canvas {
+    text-align: left;
+    white-space: pre-wrap;
+  }
+
   /* ===== Footnotes ===== */
+  hr.footnotes-sep {
+    display: none;
+  }
   sup.footnote-ref {
     display: inline-block;
     font-size: 10px;
@@ -1212,10 +1321,13 @@ body.vscode-body {
   /* ===== Dark / high-contrast tweaks (base colors already follow VS Code) ===== */
   &.vscode-dark,
   &.vscode-high-contrast {
-    /* Bright accents need dark heading text; shadows deepen on dark themes */
-    --nx-h2-fg: #1a1a1a;
-    --nx-callout-a: 0.18;
-    --nx-callout-a-hover: 0.24;
+    /* Match Nexora's dark preview: white text and stronger signal glow. */
+    --nx-h2-fg: #fff;
+    --nx-shadow-signal-sm: color-mix(in srgb, var(--nx-signal) 35%, transparent);
+    --nx-shadow-signal-lg: color-mix(in srgb, var(--nx-signal) 45%, transparent);
+    --nx-alert-pill-bg: color-mix(in srgb, #fff 8%, transparent);
+    --nx-callout-a: 0.32;
+    --nx-callout-a-hover: 0.42;
     --nx-shadow-code: color-mix(in srgb, #000 22%, transparent);
     --nx-shadow-img: color-mix(in srgb, #000 27%, transparent);
     --nx-shadow-alert: color-mix(in srgb, #000 32%, transparent);

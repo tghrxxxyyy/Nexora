@@ -14,8 +14,8 @@
 
 - **标题**:H1 底部渐变线、H2 渐变色块、H3 装饰条、H4/H5 圆点、H6 长划线,全部带悬停动画
 - **GitHub callouts**:`> [!NOTE] / [!TIP] / [!WARNING] / [!IMPORTANT] / [!CAUTION]` 五种卡片
-- **代码块**:Mac 三色点 + 语言标签外壳;内置 **highlight.js 11** 语法高亮(与 Nexora 同配色)
-- **Mermaid**:` ```mermaid ` 代码块渲染为图表,跟随明 / 暗主题
+- **代码块**:Mac 三色点 + 语言标签外壳;内置完整 **highlight.js 11**，支持 192 种语言(与 Nexora 同配色)
+- **Mermaid**:` ```mermaid ` 代码块渲染为图表,跟随明 / 暗主题；使用 Nexora 独立运行时，避免与 VS Code 1.131+ 内置 Mermaid 扩展冲突
 - **`[TOC]`** 自动目录、图片 `<figure>` 说明
 - **配色联动 VS Code 主题**:背景 / 文字 / 边框 / 表面 / 滚动条 / 链接主色全部跟随当前 VS Code 主题,切主题即变
 - **铺满渲染**:预览内容铺满宽度,无两侧空白
@@ -26,10 +26,10 @@
 ### 从 .vsix 安装
 
 ```bash
-code --install-extension nexora-markdown-0.4.0.vsix
+code --install-extension nexora-markdown-0.4.5.vsix
 ```
 
-或在 VS Code 里:`扩展` 面板 → 右上角 `···` → `从 VSIX 安装`,选择 `nexora-markdown-0.4.0.vsix`。
+或在 VS Code 里:`扩展` 面板 → 右上角 `···` → `从 VSIX 安装`,选择 `nexora-markdown-0.4.5.vsix`。
 
 安装后 **Reload Window**,打开任意 `.md` 文件 → 用内置预览打开(见上方「重要」)。
 
@@ -47,7 +47,8 @@ code --install-extension nexora-markdown-0.4.0.vsix
 ## 适配说明 / 已知限制
 
 - 通过 VS Code 官方扩展点 `markdown.previewStyles` + `markdown.previewScripts` + `markdown.markdownItPlugins` 注入,**不替换预览引擎**。
-- **Front matter**:VS Code 默认隐藏 YAML front matter(源码层剥离)。想显示为 Nexora 卡片,设 `"markdown.preview.frontMatter": "show"`(扩展的 markdown-it 插件接管渲染)。
+- **Front matter**:扩展会在解析阶段优先接管 YAML front matter，始终显示为 Nexora 的 YAML 卡片，不受 VS Code 默认 `markdown.preview.frontMatter: "table"` 影响。
+- **脚注**:在解析阶段支持 `[^id]` 引用与定义（包括多行内容和重复引用），输出 Nexora 脚注卡片。
 - **字体**:优先 `Maple Mono`,缺失时回退 `SF Mono / Consolas / monospace`。
 - **只读预览**:不支持 Nexora 桌面端的 contenteditable 直接编辑;VS Code 预览本身是只读的。
 
@@ -58,7 +59,7 @@ code --install-extension nexora-markdown-0.4.0.vsix
 ```bash
 cd vscode-extension
 npm install
-npm run build:css   # nexora.src.css (nested) → nexora.css (flat)
+npm run build       # 编译 CSS + 生成完整 highlight.js 浏览器包
 npm run package     # 编译 + 打包 .vsix
 ```
 

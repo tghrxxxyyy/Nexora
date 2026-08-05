@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="../media/nexora.css">
+</head>
+<body class="vscode-body vscode-dark" style="--vscode-editor-background:#0c0f11;--vscode-editor-foreground:#f1f4f5">
+  <h2>Mermaid 图表</h2>
+  <pre class="nexora-front-matter"><code>title: Smoke test</code></pre>
+
+  <div class="nexora-code-block" data-nexora-language="cpp">
+    <span class="nexora-code-language">cpp</span>
+    <pre><code class="hljs language-cpp">int main() { return 0; }</code></pre>
+  </div>
+  <div class="nexora-code-block" data-nexora-language="text">
+    <span class="nexora-code-language">text</span>
+    <pre><code class="hljs language-text">plain text without auto detection</code></pre>
+  </div>
+  <div class="nexora-mermaid" data-nexora-mermaid-source="flowchart LR&#10;    A[Markdown] --&gt; B[Nexora]">
+    <div class="nexora-mermaid-canvas">flowchart LR
+      A[Markdown] --&gt; B[Nexora]</div>
+  </div>
+  <div id="large-mermaid" class="nexora-mermaid">
+    <div class="nexora-mermaid-canvas"></div>
+  </div>
+
+  <script>
+    // Mermaid 11's default is 50,000 chars. This remains a valid diagram while
+    // proving Nexora's configured limit is actually used in the browser.
+    const largeSource =
+      "flowchart LR\n%% " + "x".repeat(60000) + "\nLarge --> Diagram";
+    document.getElementById("large-mermaid")
+      .setAttribute("data-nexora-mermaid-source", largeSource);
+    document.querySelector("#large-mermaid .nexora-mermaid-canvas").textContent = largeSource;
+  </script>
+
+  <script src="../media/vendor/highlight.min.js"></script>
+  <script src="../media/vendor/mermaid.min.js"></script>
+  <script>
+    window.__nexoraMermaidRenders = 0;
+    const originalMermaidRender = window.__nexoraMermaid.render.bind(window.__nexoraMermaid);
+    window.__nexoraMermaid.render = function (id, source) {
+      window.__nexoraMermaidRenders += 1;
+      return originalMermaidRender(id, source);
+    };
+  </script>
+  <script src="../media/nexora.js"></script>
+  <script>
+    setTimeout(function () {
+      const result = document.createElement("output");
+      const labels = Array.from(document.querySelectorAll(".nexora-code-language"))
+        .map(function (node) { return node.textContent; });
+      const passed =
+        document.querySelectorAll(".nexora-code-block").length === 2 &&
+        labels.join(",") === "cpp,text" &&
+        document.querySelectorAll(".nexora-mermaid svg").length === 2 &&
+        document.querySelectorAll(".nexora-mermaid .mermaid").length === 0 &&
+        window.__nexoraMermaidRenders === 2 &&
+        getComputedStyle(document.querySelector("h2")).color ===
+          "rgb(255, 255, 255)" &&
+        getComputedStyle(document.querySelector("h2")).boxShadow !== "none" &&
+        getComputedStyle(document.querySelector(".nexora-code-block"))
+          .backgroundColor !== "rgb(0, 0, 0)" &&
+        !document.querySelector(".nexora-front-matter .nexora-code-block") &&
+        !document.querySelector(".nexora-mermaid-failed");
+      result.id = "nexora-smoke-result";
+      result.dataset.passed = String(passed);
+      result.dataset.mermaidRenders = String(window.__nexoraMermaidRenders);
+      result.dataset.labels = labels.join(",");
+      result.textContent = passed ? "PASS" : "FAIL";
+      document.body.appendChild(result);
+    }, 1200);
+  </script>
+</body>
+</html>
