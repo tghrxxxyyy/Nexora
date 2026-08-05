@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:re_editor/re_editor.dart';
+import 'package:re_highlight/languages/cpp.dart';
 import 'package:re_highlight/languages/css.dart';
 import 'package:re_highlight/languages/dart.dart';
 import 'package:re_highlight/languages/java.dart';
@@ -208,6 +209,14 @@ class _CodeEditorViewState extends State<CodeEditorView> {
       '.yaml' || '.yml' => 'yaml',
       '.sh' || '.zsh' || '.bash' => 'shell',
       '.dart' => 'dart',
+      '.cpp' ||
+      '.cc' ||
+      '.cxx' ||
+      '.C' ||
+      '.h' ||
+      '.hpp' ||
+      '.hh' ||
+      '.hxx' => 'cpp',
       _ => 'plain',
     };
   }
@@ -226,6 +235,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
       'yaml' => langYaml,
       'shell' => langShell,
       'dart' => langDart,
+      'cpp' => langCpp,
       _ => null,
     };
   }
