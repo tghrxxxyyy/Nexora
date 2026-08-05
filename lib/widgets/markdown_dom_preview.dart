@@ -17,6 +17,88 @@ import '../services/mermaid_bundle.dart';
 import '../state/preview_find_controller.dart';
 import 'preview_find_panel.dart';
 
+class _DomDocumentSnapshot {
+  const _DomDocumentSnapshot({
+    required this.generation,
+    required this.path,
+    required this.baseUrl,
+    required this.markdownHtml,
+    required this.anchors,
+    required this.scrollOffset,
+    required this.styleSheet,
+    required this.dark,
+    required this.fullReload,
+    required this.preserveCursor,
+  });
+
+  /// Monotonic render generation used to reject stale asynchronous work.
+  final int generation;
+
+  /// Absolute path of the Markdown document represented by this snapshot.
+  final String path;
+
+  /// File URL used to resolve relative links and images.
+  final String baseUrl;
+
+  /// Rendered Markdown body captured before WebView commands begin.
+  final String markdownHtml;
+
+  /// Heading IDs captured from the document outline.
+  final List<String> anchors;
+
+  /// Saved vertical position to restore after layout is ready.
+  final double scrollOffset;
+
+  /// Theme CSS captured for full-page reloads.
+  final String styleSheet;
+
+  /// Whether Mermaid should render with its dark theme.
+  final bool dark;
+
+  /// Whether this update must replace the full HTML shell.
+  final bool fullReload;
+
+  /// Whether a same-document replacement should preserve the caret.
+  final bool preserveCursor;
+
+  /// Returns the same render snapshot with [scrollOffset] replaced.
+  _DomDocumentSnapshot withScrollOffset(double scrollOffset) {
+    return _DomDocumentSnapshot(
+      generation: generation,
+      path: path,
+      baseUrl: baseUrl,
+      markdownHtml: markdownHtml,
+      anchors: anchors,
+      scrollOffset: scrollOffset,
+      styleSheet: styleSheet,
+      dark: dark,
+      fullReload: fullReload,
+      preserveCursor: preserveCursor,
+    );
+  }
+}
+
+class _PendingPreviewJump {
+  const _PendingPreviewJump({
+    required this.path,
+    required this.anchor,
+    required this.requestId,
+    required this.onConsumed,
+  });
+
+  /// Document that owns this outline request.
+  final String path;
+
+  /// Heading ID that should become visible.
+  final String anchor;
+
+  /// Session-local request identifier.
+  final int requestId;
+
+  /// Callback used to clear the request from its owning session.
+  final void Function(String path, int requestId)? onConsumed;
+}
+
 class MarkdownDomPreview extends StatefulWidget {
   const MarkdownDomPreview({
     required this.path,
@@ -33,6 +115,7 @@ class MarkdownDomPreview extends StatefulWidget {
     this.onScrollPersist,
     this.scrollFraction,
     this.onScrollFractionChanged,
+    this.onPreviewJumpConsumed,
     this.onContentChanged,
     this.onOpenLocalPath,
     this.onOpenAnchor,
@@ -72,7 +155,11 @@ class MarkdownDomPreview extends StatefulWidget {
   /// the sibling editor can follow.
   final ValueChanged<double>? onScrollFractionChanged;
 
-  final ValueChanged<String>? onContentChanged;
+  /// Acknowledges that the outline jump for [path] and [requestId] ran.
+  final void Function(String path, int requestId)? onPreviewJumpConsumed;
+
+  /// Applies preview edits to the session identified by the supplied path.
+  final void Function(String path, String content)? onContentChanged;
   final ValueChanged<String>? onOpenLocalPath;
   final ValueChanged<String>? onOpenAnchor;
 
@@ -80,15 +167,21 @@ class MarkdownDomPreview extends StatefulWidget {
   State<MarkdownDomPreview> createState() => _MarkdownDomPreviewState();
 }
 
-class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
+class _MarkdownDomPreviewState extends State<MarkdownDomPreview>
+    with WidgetsBindingObserver {
   late final WebViewController _controller;
   bool _loading = true;
   bool _pageReady = false;
   double _previewMaxY = 0;
   String? _error;
-  String? _pendingAnchor;
   String? _mermaidScript;
   int _observedFocusRequestId = 0;
+  int _documentGeneration = 0;
+  Future<void> _pageCommandQueue = Future<void>.value();
+  _DomDocumentSnapshot? _pendingDocument;
+  _DomDocumentSnapshot? _loadingDocument;
+  _PendingPreviewJump? _pendingPreviewJump;
+  bool _fullReloadRequired = true;
 
   /// Path of the document currently rendered inside the WebView. Tracks the
   /// outgoing document right before the DOM is swapped, so we can read its
@@ -98,10 +191,17 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   /// The notifier currently being listened to for external scroll drive.
   ValueListenable<double?>? _attachedScrollFraction;
 
+  /// Applies the split editor's current [scrollFraction] to this document.
   void _onExternalScrollFraction() {
     final f = _attachedScrollFraction?.value;
     if (f == null) return;
-    unawaited(_runJavaScript('window.nexoraSetScrollYFraction($f);'));
+    final path = _currentPath;
+    if (path == null) return;
+    unawaited(
+      _runJavaScript(
+        'window.nexoraSetScrollYFraction(${jsonEncode(path)}, $f);',
+      ),
+    );
   }
 
   static const _appearanceChannel = MethodChannel(
@@ -119,19 +219,20 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _observedFocusRequestId = widget.findController.focusRequestId;
     _observedNavigationRequestId = widget.findController.navigationRequestId;
     _observedFindOpen = widget.findController.isOpen;
     _observedCaseSensitive = widget.findController.caseSensitive;
     _observedFindQuery = widget.findController.query;
-    _pendingAnchor = widget.previewAnchor;
-    _currentPath = widget.path;
+    _pendingPreviewJump = _previewJumpFromWidget();
     _attachedScrollFraction = widget.scrollFraction;
     widget.scrollFraction?.addListener(_onExternalScrollFraction);
     widget.findController.addListener(_handleFindChanged);
     _initializeWebView();
   }
 
+  /// Creates the WebView bridge and schedules its first document snapshot.
   void _initializeWebView() {
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -150,12 +251,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
             }
           },
           onPageFinished: (_) {
-            if (!mounted) return;
-            setState(() {
-              _pageReady = true;
-              _loading = false;
-            });
-            unawaited(_flushPageCommands());
+            _handlePageFinished();
           },
           onNavigationRequest: (request) {
             return request.url.startsWith('file://') ||
@@ -169,7 +265,44 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
         ),
       );
     _controller = controller;
-    unawaited(_loadContent());
+    _scheduleDocumentUpdate(fullReload: true);
+  }
+
+  /// Finalizes the document captured by the current WebView navigation and
+  /// immediately schedules any newer snapshot that arrived while it loaded.
+  void _handlePageFinished() {
+    if (!mounted) return;
+    final loaded = _loadingDocument;
+    _loadingDocument = null;
+    setState(() {
+      _pageReady = true;
+      _loading = false;
+    });
+    if (loaded == null) return;
+    _currentPath = loaded.path;
+
+    var pending = _pendingDocument;
+    if (pending != null && pending.generation != _documentGeneration) {
+      _pendingDocument = null;
+      pending = null;
+    }
+    if (pending != null && pending.generation != loaded.generation) {
+      final next = pending;
+      if (next.fullReload) {
+        _enqueuePageCommand(() => _loadContent(next));
+      } else {
+        _enqueuePageCommand(() => _replaceDocument(next));
+      }
+      return;
+    }
+
+    if (loaded.generation == _documentGeneration) {
+      if (_pendingDocument?.generation == loaded.generation) {
+        _pendingDocument = null;
+      }
+      _fullReloadRequired = false;
+      _enqueuePageCommand(() => _flushPageCommands(loaded));
+    }
   }
 
   @override
@@ -184,9 +317,20 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       _observedFindQuery = widget.findController.query;
       widget.findController.addListener(_handleFindChanged);
     }
+    final pathChanged = widget.path != oldWidget.path;
+    if (pathChanged) {
+      // Jump IDs belong to individual sessions and cannot be compared across
+      // files. Only a still-pending anchor on the incoming file is actionable.
+      _pendingPreviewJump = _previewJumpFromWidget();
+    } else if (widget.previewJumpId != oldWidget.previewJumpId) {
+      _pendingPreviewJump = _previewJumpFromWidget();
+    }
+
     final contentCameFromPreview =
+        !pathChanged &&
         _pendingPreviewContent != null &&
         widget.content == _pendingPreviewContent;
+    var documentUpdateScheduled = false;
     if (contentCameFromPreview) {
       // The DOM already reflects the user's contenteditable edit — the
       // markdown → HTML pipeline doesn't get to re-run on raw text edits,
@@ -196,22 +340,28 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       // as the cursor jumping while typing. We accept the literal-text
       // trade-off rather than racing the user's input.
       _pendingPreviewContent = null;
-      unawaited(_updateHeadingAnchors());
+      final snapshot = _captureDocumentSnapshot(incrementGeneration: false);
+      _enqueuePageCommand(() => _updateHeadingAnchors(snapshot));
     } else if (widget.themeId != oldWidget.themeId ||
         widget.themeMode != oldWidget.themeMode) {
-      unawaited(_refreshThemedDocument());
+      _scheduleDocumentUpdate(fullReload: true);
+      documentUpdateScheduled = true;
     } else if (widget.fontScale != oldWidget.fontScale) {
       unawaited(
         _runJavaScript('window.nexoraSetFontScale(${widget.fontScale});'),
       );
     } else if (widget.content != oldWidget.content ||
-        widget.path != oldWidget.path ||
+        pathChanged ||
         widget.headings != oldWidget.headings) {
-      unawaited(_replaceDocument());
+      _scheduleDocumentUpdate();
+      documentUpdateScheduled = true;
     }
-    if (widget.previewJumpId != oldWidget.previewJumpId) {
-      _pendingAnchor = widget.previewAnchor;
-      unawaited(_flushPageCommands());
+    if (!documentUpdateScheduled &&
+        _pendingPreviewJump != null &&
+        _pageReady &&
+        _currentPath == widget.path) {
+      final snapshot = _captureDocumentSnapshot(incrementGeneration: false);
+      _enqueuePageCommand(() => _flushPageCommands(snapshot));
     }
     if (widget.scrollFraction != oldWidget.scrollFraction) {
       oldWidget.scrollFraction?.removeListener(_onExternalScrollFraction);
@@ -222,9 +372,35 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
 
   @override
   void dispose() {
+    // Capture the final position even when the platform view is removed before
+    // the trailing JavaScript scroll report has time to fire.
+    unawaited(_persistCurrentScroll());
     _attachedScrollFraction?.removeListener(_onExternalScrollFraction);
+    WidgetsBinding.instance.removeObserver(this);
     widget.findController.removeListener(_handleFindChanged);
     super.dispose();
+  }
+
+  /// Ends DOM editing whenever the desktop app is no longer active so the
+  /// native insertion caret cannot keep the WKWebView display link running.
+  ///
+  /// [state] is the lifecycle state reported by Flutter for the application.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) return;
+    unawaited(_runJavaScript('window.nexoraDeactivateEditor();'));
+  }
+
+  /// Creates a one-shot outline request from the currently mounted document.
+  _PendingPreviewJump? _previewJumpFromWidget() {
+    final anchor = widget.previewAnchor;
+    if (anchor == null || anchor.isEmpty) return null;
+    return _PendingPreviewJump(
+      path: widget.path,
+      anchor: anchor,
+      requestId: widget.previewJumpId,
+      onConsumed: widget.onPreviewJumpConsumed,
+    );
   }
 
   @override
@@ -298,7 +474,84 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     );
   }
 
-  Future<void> _loadContent() async {
+  /// Captures all document data before any asynchronous WebView work starts.
+  ///
+  /// Set [incrementGeneration] to `false` for commands that do not replace the
+  /// DOM. Set [fullReload] when the HTML shell and theme CSS must be rebuilt.
+  _DomDocumentSnapshot _captureDocumentSnapshot({
+    bool incrementGeneration = true,
+    bool fullReload = false,
+    bool preserveCursor = false,
+  }) {
+    if (incrementGeneration) _documentGeneration++;
+    return _DomDocumentSnapshot(
+      generation: _documentGeneration,
+      path: widget.path,
+      baseUrl: _resolveBaseUrl(widget.path),
+      markdownHtml: _markdownHtml(),
+      anchors: widget.headings.map((heading) => heading.anchor).toList(),
+      scrollOffset: widget.scrollOffset,
+      styleSheet: _styleSheet(),
+      dark: widget.themeMode == AppThemeMode.dark,
+      fullReload: fullReload || _fullReloadRequired,
+      preserveCursor: preserveCursor,
+    );
+  }
+
+  /// Queues a document update so older asynchronous commands cannot overtake
+  /// a newer file switch.
+  ///
+  /// Set [fullReload] when theme-dependent HTML and CSS must be regenerated.
+  void _scheduleDocumentUpdate({
+    bool fullReload = false,
+    bool preserveCursor = false,
+  }) {
+    if (fullReload) _fullReloadRequired = true;
+    final snapshot = _captureDocumentSnapshot(
+      fullReload: fullReload,
+      preserveCursor: preserveCursor,
+    );
+    _pendingDocument = snapshot;
+    if (snapshot.fullReload) {
+      _enqueuePageCommand(() => _loadContent(snapshot));
+    } else if (_pageReady && _loadingDocument == null) {
+      _enqueuePageCommand(() => _replaceDocument(snapshot));
+    }
+  }
+
+  /// Serializes [command] with all other DOM replacement and restore work.
+  void _enqueuePageCommand(Future<void> Function() command) {
+    Future<void> runCommand() async {
+      if (!mounted) return;
+      try {
+        await command();
+      } catch (error, stack) {
+        debugPrint('Markdown preview command failed: $error\n$stack');
+      }
+    }
+
+    _pageCommandQueue = _pageCommandQueue.then((_) => runCommand());
+  }
+
+  /// Loads a complete HTML shell for [snapshot]. This is used for the initial
+  /// page and theme changes; regular file switches replace only the DOM body.
+  Future<void> _loadContent(_DomDocumentSnapshot snapshot) async {
+    if (snapshot.generation != _documentGeneration) return;
+    if (_loadingDocument != null) {
+      _pendingDocument = snapshot;
+      return;
+    }
+
+    var effectiveSnapshot = snapshot;
+    final outgoingPath = _currentPath;
+    if (_pageReady) {
+      final outgoingOffset = await _persistCurrentScroll();
+      if (outgoingPath == snapshot.path && outgoingOffset != null) {
+        effectiveSnapshot = snapshot.withScrollOffset(outgoingOffset);
+      }
+    }
+    if (snapshot.generation != _documentGeneration) return;
+
     if (mounted) {
       setState(() {
         _loading = true;
@@ -312,11 +565,23 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       debugPrint('MermaidBundle.script failed: $error\n$stack');
       _mermaidScript = null;
     }
+
+    if (snapshot.generation != _documentGeneration) return;
+
     try {
-      final baseUrl = _resolveBaseUrl();
-      await _controller.loadHtmlString(_documentHtml(), baseUrl: baseUrl);
+      _loadingDocument = effectiveSnapshot;
+      if (_pendingDocument?.generation == snapshot.generation) {
+        _pendingDocument = null;
+      }
+      await _controller.loadHtmlString(
+        _documentHtml(effectiveSnapshot),
+        baseUrl: effectiveSnapshot.baseUrl,
+      );
     } catch (error, stack) {
-      debugPrint('loadHtmlString failed for ${widget.path}: $error\n$stack');
+      _loadingDocument = null;
+      debugPrint(
+        'loadHtmlString failed for ${effectiveSnapshot.path}: $error\n$stack',
+      );
       if (mounted) setState(() => _error = error.toString());
     }
     _pushAppearanceColor();
@@ -355,8 +620,8 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   ///
   /// Falls back to manual percent-encoding when `Uri.directory` rejects the
   /// path (e.g. paths containing a stray `%` like `50%off.md`).
-  String _resolveBaseUrl() {
-    final dirPath = '${p.dirname(widget.path)}${Platform.pathSeparator}';
+  String _resolveBaseUrl(String documentPath) {
+    final dirPath = '${p.dirname(documentPath)}${Platform.pathSeparator}';
     try {
       return Uri.directory(dirPath).toString();
     } catch (_) {
@@ -372,59 +637,109 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
   /// session before the DOM is swapped out or the WebView is torn down. Reads
   /// [path]-keyed (not the mounted widget's path) so the value lands on the
   /// outgoing document's session.
-  Future<void> _persistCurrentScroll() async {
+  Future<double?> _persistCurrentScroll() async {
     final outgoingPath = _currentPath;
-    if (!_pageReady || outgoingPath == null) return;
+    final persist = widget.onScrollPersist;
+    if (!_pageReady || outgoingPath == null) return null;
     try {
       final raw = await _controller.runJavaScriptReturningResult(
-        'window.scrollY',
+        'window.nexoraGetPersistedScroll()',
       );
-      final value = double.tryParse('$raw');
-      if (value != null && value > 0) {
-        widget.onScrollPersist?.call(outgoingPath, value);
+      dynamic decoded = raw;
+      if (decoded is String) {
+        try {
+          decoded = jsonDecode(decoded);
+        } catch (_) {}
       }
+      if (decoded is! Map || decoded['path'] != outgoingPath) return null;
+      final value = decoded['y'];
+      if (value is! num || value.isNegative) return null;
+      final offset = value.toDouble();
+      persist?.call(outgoingPath, offset);
+      return offset;
     } catch (_) {}
+    return null;
   }
 
-  Future<void> _refreshThemedDocument() async {
-    await _persistCurrentScroll();
-    await _loadContent();
-  }
-
-  Future<void> _replaceDocument({bool preserveCursor = false}) async {
-    if (!_pageReady) {
-      await _loadContent();
+  /// Replaces the current DOM with [snapshot] after persisting the outgoing
+  /// file. Generation checks make rapid A -> B -> C switches latest-wins.
+  Future<void> _replaceDocument(_DomDocumentSnapshot snapshot) async {
+    if (snapshot.generation != _documentGeneration) return;
+    if (!_pageReady || _loadingDocument != null) {
+      _pendingDocument = snapshot;
       return;
     }
-    await _persistCurrentScroll();
-    _currentPath = widget.path;
-    final baseUrl = _resolveBaseUrl();
-    await _runJavaScript(
+
+    final outgoingPath = _currentPath;
+    final outgoingOffset = await _persistCurrentScroll();
+    if (snapshot.generation != _documentGeneration) return;
+    final effectiveSnapshot =
+        outgoingPath == snapshot.path && outgoingOffset != null
+        ? snapshot.withScrollOffset(outgoingOffset)
+        : snapshot;
+    final replaced = await _runJavaScriptChecked(
       'window.nexoraReplaceDocument('
-      '${jsonEncode(_markdownHtml())}, ${jsonEncode(baseUrl)}, ${preserveCursor}, '
-      '${widget.scrollOffset}'
+      '${jsonEncode(effectiveSnapshot.markdownHtml)}, '
+      '${jsonEncode(effectiveSnapshot.baseUrl)}, '
+      '${effectiveSnapshot.preserveCursor}, '
+      '${jsonEncode(effectiveSnapshot.path)}, '
+      '${effectiveSnapshot.scrollOffset}'
       ');',
     );
-    await _updateHeadingAnchors();
-    await _syncFind(force: true);
-  }
-
-  Future<void> _updateHeadingAnchors() {
-    final anchors = widget.headings.map((heading) => heading.anchor).toList();
-    return _runJavaScript('window.nexoraSetAnchors(${jsonEncode(anchors)});');
-  }
-
-  Future<void> _flushPageCommands() async {
-    if (!_pageReady) return;
-    await _runJavaScript('requestAnimationFrame(() => window.nexoraReady());');
-    await _updateHeadingAnchors();
-    final anchor = _pendingAnchor;
-    _pendingAnchor = null;
-    if (anchor != null && anchor.isNotEmpty) {
-      await _runJavaScript('window.nexoraScrollTo(${jsonEncode(anchor)});');
-    } else if (widget.scrollOffset > 0) {
-      await _runJavaScript('window.nexoraSetScrollY(${widget.scrollOffset});');
+    if (!replaced) return;
+    _currentPath = effectiveSnapshot.path;
+    if (_pendingDocument?.generation == effectiveSnapshot.generation) {
+      _pendingDocument = null;
     }
+    if (effectiveSnapshot.generation != _documentGeneration) return;
+    await _flushPageCommands(effectiveSnapshot);
+  }
+
+  /// Applies the captured heading anchors for [snapshot] to its rendered DOM.
+  Future<void> _updateHeadingAnchors(_DomDocumentSnapshot snapshot) {
+    if (_currentPath != snapshot.path) return Future<void>.value();
+    return _runJavaScript(
+      'window.nexoraSetAnchors(${jsonEncode(snapshot.anchors)});',
+    );
+  }
+
+  /// Enhances the rendered [snapshot], then performs one outline jump or a
+  /// layout-aware restoration of its saved scroll position.
+  Future<void> _flushPageCommands(_DomDocumentSnapshot snapshot) async {
+    if (!_pageReady || _currentPath != snapshot.path) return;
+    if (snapshot.generation != _documentGeneration) return;
+    await _runJavaScript(
+      'window.nexoraReady('
+      '${jsonEncode(snapshot.path)}, ${snapshot.scrollOffset}'
+      ');',
+    );
+    await _updateHeadingAnchors(snapshot);
+    if (snapshot.generation != _documentGeneration) return;
+
+    final jump = _pendingPreviewJump;
+    if (jump != null && jump.path == snapshot.path) {
+      final executed = await _runJavaScriptReturningBool(
+        'window.nexoraScrollTo(${jsonEncode(jump.anchor)});',
+      );
+      if (executed != null) {
+        if (_pendingPreviewJump?.path == jump.path &&
+            _pendingPreviewJump?.requestId == jump.requestId) {
+          _pendingPreviewJump = null;
+        }
+        // Missing anchors are consumed too: replaying a permanently invalid
+        // historical request would override every later scroll restoration.
+        jump.onConsumed?.call(jump.path, jump.requestId);
+      }
+      if (executed == true) {
+        await _syncFind(force: true);
+        return;
+      }
+    }
+    await _runJavaScript(
+      'window.nexoraRestoreScrollY('
+      '${jsonEncode(snapshot.path)}, ${snapshot.scrollOffset}'
+      ');',
+    );
     await _syncFind(force: true);
   }
 
@@ -459,7 +774,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     _observedFindQuery = findController.query;
     _observedCaseSensitive = findController.caseSensitive;
     _observedNavigationRequestId = findController.navigationRequestId;
-    if (!_pageReady) return;
+    if (!_pageReady || _currentPath != widget.path) return;
     if (!findController.isOpen) {
       await _runJavaScript('window.nexoraClearFind();');
       return;
@@ -470,7 +785,7 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
         '${jsonEncode(findController.query)}, '
         '${findController.caseSensitive}, '
         '${findController.activeIndex}, '
-        '${navigationChanged || force}'
+        '$navigationChanged'
         ');',
       );
       return;
@@ -487,16 +802,31 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       final value = jsonDecode(message.message);
       if (value is! Map) return;
       final type = value['type'];
+      if (type == 'clipboard-copy') {
+        final text = value['text'];
+        if (text is String && text.isNotEmpty) {
+          unawaited(
+            Clipboard.setData(ClipboardData(text: text)).catchError((_) {}),
+          );
+        }
+        return;
+      }
+      if (type == 'clipboard-paste-request') {
+        final path = value['path'];
+        final requestId = value['requestId'];
+        if (path is String && requestId is num) {
+          unawaited(_pasteClipboardText(path, requestId.toInt()));
+        }
+        return;
+      }
       if (type == 'scroll') {
+        final path = value['path'];
         final y = value['y'];
         final maxY = value['maxY'];
-        if (y is num) {
+        if (path is String && path.isNotEmpty && y is num) {
           _previewMaxY = maxY is num ? maxY.toDouble() : 0;
-          widget.onScrollPersist?.call(
-            _currentPath ?? widget.path,
-            y.toDouble(),
-          );
-          if (widget.onScrollFractionChanged != null) {
+          widget.onScrollPersist?.call(path, y.toDouble());
+          if (path == widget.path && widget.onScrollFractionChanged != null) {
             final fraction = _previewMaxY > 0
                 ? (y.toDouble() / _previewMaxY).clamp(0.0, 1.0)
                 : 0.0;
@@ -517,10 +847,14 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
         return;
       }
       if (type == 'content') {
+        final path = value['path'];
         final markdown = value['markdown'];
-        if (markdown is! String || markdown == widget.content) return;
-        _pendingPreviewContent = markdown;
-        widget.onContentChanged?.call(markdown);
+        if (path is! String || path.isEmpty || markdown is! String) return;
+        if (path == widget.path) {
+          if (markdown == widget.content) return;
+          _pendingPreviewContent = markdown;
+        }
+        widget.onContentChanged?.call(path, markdown);
         return;
       }
       if (type == 'image') {
@@ -538,6 +872,26 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
       }
       final href = value['href'];
       if (type == 'link' && href is String) _openLink(href);
+    } catch (_) {}
+  }
+
+  /// Reads plain text from the system clipboard and inserts it into [path] for
+  /// the still-current DOM paste [requestId].
+  Future<void> _pasteClipboardText(String path, int requestId) async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text;
+      if (!mounted ||
+          text == null ||
+          path != widget.path ||
+          path != _currentPath) {
+        return;
+      }
+      await _runJavaScript(
+        'window.nexoraApplyClipboardPaste('
+        '${jsonEncode(path)}, $requestId, ${jsonEncode(text)}'
+        ');',
+      );
     } catch (_) {}
   }
 
@@ -754,16 +1108,37 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
     } catch (_) {}
   }
 
-  String _documentHtml() {
-    final markdownHtml = _markdownHtml();
-    final baseUrl = _resolveBaseUrl();
-    final dark = widget.themeMode == AppThemeMode.dark;
+  /// Executes [script] and reports whether WebView accepted the command.
+  Future<bool> _runJavaScriptChecked(String script) async {
+    try {
+      await _controller.runJavaScript(script);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Executes boolean JavaScript [script], returning `null` if it failed.
+  Future<bool?> _runJavaScriptReturningBool(String script) async {
+    try {
+      final result = await _controller.runJavaScriptReturningResult(script);
+      if (result is bool) return result;
+      if ('$result' == 'true') return true;
+      if ('$result' == 'false') return false;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Builds the full HTML shell from the immutable [snapshot].
+  String _documentHtml(_DomDocumentSnapshot snapshot) {
     final mermaidInit = _mermaidScript == null
         ? ''
         : '<script>$_mermaidScript</script>\n'
               '<script>if(window.mermaid){window.mermaid.initialize({'
               'startOnLoad:false,'
-              "theme:'${dark ? 'dark' : 'default'}',"
+              "theme:'${snapshot.dark ? 'dark' : 'default'}',"
               "securityLevel:'loose',"
               "fontFamily:'inherit'"
               '});}</script>';
@@ -772,12 +1147,12 @@ class _MarkdownDomPreviewState extends State<MarkdownDomPreview> {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base href="${const HtmlEscape().convert(baseUrl)}">
-<style>${_styleSheet()}</style>
+<base href="${const HtmlEscape().convert(snapshot.baseUrl)}">
+<style>${snapshot.styleSheet}</style>
 $mermaidInit
 </head>
 <body>
-<main id="nexora-document" contenteditable="true" spellcheck="false" tabindex="0">$markdownHtml</main>
+<main id="nexora-document" contenteditable="false" spellcheck="false" tabindex="0">${snapshot.markdownHtml}</main>
 <script>$_bridgeScript</script>
 </body>
 </html>''';
@@ -1295,7 +1670,7 @@ pre {
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-meta .hljs-keyword { color: ${_color(AppColors.coral)} !important; font-weight: 600; }
 .hljs-string, .hljs-doctag, .hljs-regexp { color: ${_color(AppColors.acid)} !important; }
 .hljs-number, .hljs-symbol, .hljs-bullet { color: ${_color(AppColors.amber)} !important; }
-.hljs-title, .hljs-function, .hljs-title\.function_, .hljs-class .hljs-title { color: ${_color(AppColors.signal)} !important; font-weight: 600; }
+.hljs-title, .hljs-function, .hljs-title.function_, .hljs-class .hljs-title { color: ${_color(AppColors.signal)} !important; font-weight: 600; }
 .hljs-type, .hljs-built_in, .hljs-builtin-name { color: ${_color(AppColors.signalDim)} !important; }
 .hljs-params, .hljs-variable, .hljs-template-variable { color: ${_color(AppColors.text)} !important; }
 .hljs-attr, .hljs-attribute, .hljs-property { color: ${_color(AppColors.signalDim)} !important; }
@@ -1943,39 +2318,282 @@ mark.nexora-find.nexora-find-active { background: rgba(${_rgb(AppColors.signal)}
 }
 
 const _bridgeScript = r'''
-window.nexoraReady = function() {
+window.nexoraDocumentPath = '';
+window.nexoraSuppressScrollReports = true;
+window.nexoraRestoreToken = 0;
+window.nexoraRestoreState = null;
+window.nexoraPendingRestoreTarget = null;
+window.nexoraScrollReportTimer = null;
+window.nexoraLastScrollReport = 0;
+window.nexoraMermaidRendering = false;
+window.nexoraMermaidGeneration = 0;
+window.nexoraPasteRequestId = 0;
+window.nexoraPendingPaste = null;
+
+// Cancels the finite layout observer and optionally resumes user scroll reports.
+window.nexoraCancelScrollRestore = function(allowReports) {
+  window.nexoraRestoreToken += 1;
+  window.clearTimeout(window.nexoraScrollReportTimer);
+  window.nexoraScrollReportTimer = null;
+  var state = window.nexoraRestoreState;
+  if (state) {
+    if (state.observer) state.observer.disconnect();
+    if (state.settleTimer) window.clearTimeout(state.settleTimer);
+    if (state.limitTimer) window.clearTimeout(state.limitTimer);
+    if (state.frame) window.cancelAnimationFrame(state.frame);
+  }
+  window.nexoraRestoreState = null;
+  if (allowReports !== false) {
+    window.nexoraPendingRestoreTarget = null;
+    window.nexoraSuppressScrollReports = false;
+  }
+};
+
+// Enhances a freshly rendered document before its saved position is restored.
+window.nexoraReady = function(path, restoreY) {
+  window.nexoraCancelScrollRestore(false);
+  window.nexoraDocumentPath = path || '';
+  var target = Number(restoreY);
+  if (!Number.isFinite(target) || target < 0) target = 0;
+  window.nexoraPendingRestoreTarget = { path: path, target: target };
+  window.nexoraSuppressScrollReports = true;
   window.nexoraEnhanceAlerts();
   window.nexoraBuildToc();
   window.nexoraWrapImages();
   window.nexoraRenderMermaid();
   window.nexoraWatchScroll();
 };
-window.nexoraSetScrollYFraction = function(f) {
+
+// Applies split-view scroll synchronization only to the matching document.
+window.nexoraSetScrollYFraction = function(path, f) {
+  if (path !== window.nexoraDocumentPath) return;
+  window.nexoraCancelScrollRestore(true);
   var maxY = document.documentElement.scrollHeight - window.innerHeight;
   window.scrollTo({ top: f * maxY, behavior: 'instant' });
 };
+
+// Reports the settled scroll position together with its owning document path.
+window.nexoraPostScroll = function(expectedPath) {
+  if (window.nexoraSuppressScrollReports || !window.nexoraDocumentPath) return;
+  if (expectedPath && expectedPath !== window.nexoraDocumentPath) return;
+  var maxY = Math.max(
+      0,
+      document.documentElement.scrollHeight - window.innerHeight
+  );
+  window.nexoraPostMessage({
+    type: 'scroll',
+    path: window.nexoraDocumentPath,
+    y: window.scrollY,
+    maxY: maxY
+  });
+};
+
+// Installs one trailing, event-driven scroll bridge for the WebView page.
 window.nexoraWatchScroll = function() {
   if (window.nexoraScrollWatching) return;
   window.nexoraScrollWatching = true;
-  var lastReport = 0;
   document.addEventListener('scroll', function() {
+    if (window.nexoraSuppressScrollReports) return;
+    window.clearTimeout(window.nexoraScrollReportTimer);
+    var path = window.nexoraDocumentPath;
+    var token = window.nexoraRestoreToken;
     var now = Date.now();
-    if (now - lastReport < 80) return;
-    lastReport = now;
-    var maxY = document.documentElement.scrollHeight - window.innerHeight;
-    window.nexoraPostMessage({ type: 'scroll', y: window.scrollY, maxY: maxY });
-  });
+    if (now - window.nexoraLastScrollReport >= 60) {
+      window.nexoraLastScrollReport = now;
+      window.nexoraPostScroll(path);
+    }
+    window.nexoraScrollReportTimer = window.setTimeout(function() {
+      if (token !== window.nexoraRestoreToken) return;
+      window.nexoraLastScrollReport = Date.now();
+      window.nexoraPostScroll(path);
+    }, 60);
+  }, { passive: true });
 };
+
 window.nexoraSetFontScale = function(value) {
   document.documentElement.style.setProperty('--nexora-font-scale', value);
 };
+
 window.nexoraSetScrollY = function(y) {
+  window.nexoraCancelScrollRestore(true);
   window.scrollTo({ top: y, behavior: 'instant' });
 };
+
+// Returns the intended target while restoration is active, not a clamped zero.
+window.nexoraGetPersistedScroll = function() {
+  var state = window.nexoraRestoreState;
+  var pending = window.nexoraPendingRestoreTarget;
+  var y = window.scrollY;
+  if (state && state.path === window.nexoraDocumentPath) {
+    y = state.target;
+  } else if (pending && pending.path === window.nexoraDocumentPath) {
+    y = pending.target;
+  }
+  return JSON.stringify({ path: window.nexoraDocumentPath, y: y });
+};
+
+// Restores a saved offset while finite image and layout changes are observed.
+window.nexoraRestoreScrollY = function(path, requestedY) {
+  window.nexoraCancelScrollRestore(false);
+  if (!path || path !== window.nexoraDocumentPath) {
+    window.nexoraSuppressScrollReports = false;
+    return false;
+  }
+
+  var target = Number(requestedY);
+  if (!Number.isFinite(target) || target < 0) target = 0;
+  var token = ++window.nexoraRestoreToken;
+  var state = {
+    token: token,
+    path: path,
+    target: target,
+    observer: null,
+    settleTimer: null,
+    limitTimer: null,
+    frame: null,
+    apply: null
+  };
+  window.nexoraRestoreState = state;
+  window.nexoraPendingRestoreTarget = null;
+  window.nexoraSuppressScrollReports = true;
+
+  function isCurrent() {
+    return window.nexoraRestoreState === state &&
+        window.nexoraRestoreToken === token &&
+        window.nexoraDocumentPath === path;
+  }
+
+  function hasPendingLayout() {
+    var images = document.querySelectorAll('#nexora-document img');
+    for (var index = 0; index < images.length; index += 1) {
+      if (!images[index].complete) return true;
+    }
+    return window.nexoraMermaidRendering === true;
+  }
+
+  function cleanup() {
+    if (state.observer) state.observer.disconnect();
+    if (state.settleTimer) window.clearTimeout(state.settleTimer);
+    if (state.limitTimer) window.clearTimeout(state.limitTimer);
+    if (state.frame) window.cancelAnimationFrame(state.frame);
+  }
+
+  function finish() {
+    if (!isCurrent()) return;
+    cleanup();
+    window.nexoraRestoreState = null;
+    window.nexoraPendingRestoreTarget = null;
+    window.nexoraSuppressScrollReports = false;
+    window.nexoraPostScroll();
+  }
+
+  function abandon() {
+    if (!isCurrent()) return;
+    cleanup();
+    window.nexoraRestoreState = null;
+    window.nexoraPendingRestoreTarget = {
+      path: state.path,
+      target: state.target
+    };
+    // Preserve the intended target until the user explicitly takes control.
+    window.nexoraSuppressScrollReports = true;
+  }
+
+  function apply() {
+    if (!isCurrent()) return;
+    if (state.settleTimer) {
+      window.clearTimeout(state.settleTimer);
+      state.settleTimer = null;
+    }
+    var maxY = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight
+    );
+    var desired = Math.min(state.target, maxY);
+    window.scrollTo({
+      top: desired,
+      behavior: 'instant'
+    });
+    var reached = Math.abs(window.scrollY - desired) <= 1;
+    if (reached && !hasPendingLayout()) {
+      state.settleTimer = window.setTimeout(finish, 180);
+    }
+  }
+  state.apply = apply;
+
+  if (window.ResizeObserver) {
+    state.observer = new ResizeObserver(apply);
+    state.observer.observe(
+        document.getElementById('nexora-document') || document.documentElement
+    );
+  }
+  document.querySelectorAll('#nexora-document img').forEach(function(image) {
+    if (image.complete) return;
+    image.addEventListener('load', apply, { once: true });
+    image.addEventListener('error', apply, { once: true });
+  });
+  apply();
+  state.frame = window.requestAnimationFrame(function() {
+    state.frame = window.requestAnimationFrame(apply);
+  });
+  state.limitTimer = window.setTimeout(function() {
+    if (!isCurrent()) return;
+    apply();
+    var maxY = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight
+    );
+    var desired = Math.min(state.target, maxY);
+    if (!hasPendingLayout() && Math.abs(window.scrollY - desired) <= 1) {
+      finish();
+    } else {
+      abandon();
+    }
+  }, 5000);
+  return true;
+};
+
+// Lets explicit user interaction take ownership from automatic restoration.
+window.nexoraCancelRestoreForUser = function() {
+  if (!window.nexoraRestoreState && !window.nexoraSuppressScrollReports) return;
+  window.nexoraCancelScrollRestore(true);
+};
+window.addEventListener('wheel', window.nexoraCancelRestoreForUser, {
+  passive: true,
+  capture: true
+});
+window.addEventListener('touchmove', window.nexoraCancelRestoreForUser, {
+  passive: true,
+  capture: true
+});
+window.addEventListener('pointerdown', function(event) {
+  if (event.button !== 0) return;
+  var edge = Math.max(
+      12,
+      window.innerWidth - document.documentElement.clientWidth + 6
+  );
+  var onVerticalScrollbar =
+      document.documentElement.scrollHeight > window.innerHeight &&
+      event.clientX >= window.innerWidth - edge;
+  var onHorizontalScrollbar =
+      document.documentElement.scrollWidth > window.innerWidth &&
+      event.clientY >= window.innerHeight - edge;
+  if (onVerticalScrollbar || onHorizontalScrollbar) {
+    window.nexoraCancelRestoreForUser();
+  }
+}, { passive: true, capture: true });
+window.addEventListener('keydown', function(event) {
+  if (!['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown', ' ']
+      .includes(event.key)) return;
+  window.nexoraCancelRestoreForUser();
+}, true);
+
 window.nexoraMatches = [];
 window.nexoraInputTimer = null;
 window.nexoraSelectionTimer = null;
 window.nexoraPendingContentSync = false;
+window.nexoraEditingActive = false;
+window.nexoraEditingDirty = false;
 
 window.nexoraPostMessage = function(message) {
   if (window.NexoraBridge && window.NexoraBridge.postMessage) {
@@ -2110,10 +2728,19 @@ window.nexoraUpdateImage = function(src, attrs) {
   window.nexoraSendContent();
 };
 
+// Renders Mermaid once and nudges any active restore when layout settles.
 window.nexoraRenderMermaid = function() {
-  if (!window.mermaid) return;
+  var generation = ++window.nexoraMermaidGeneration;
+  if (!window.mermaid) {
+    window.nexoraMermaidRendering = false;
+    return Promise.resolve();
+  }
   var containers = document.querySelectorAll('#nexora-document .nexora-mermaid');
-  if (!containers.length) return;
+  if (!containers.length) {
+    window.nexoraMermaidRendering = false;
+    return Promise.resolve();
+  }
+  window.nexoraMermaidRendering = true;
   containers.forEach(function(container) {
     var source = container.dataset.nexoraMermaidSource || '';
     var target = container.querySelector('.mermaid');
@@ -2125,12 +2752,22 @@ window.nexoraRenderMermaid = function() {
     target.removeAttribute('data-processed');
     target.innerHTML = source;
   });
+  function settle(error) {
+    if (generation !== window.nexoraMermaidGeneration) return;
+    window.nexoraMermaidRendering = false;
+    if (error) console.error('mermaid render failed:', error);
+    var restore = window.nexoraRestoreState;
+    if (restore && restore.apply) restore.apply();
+  }
   try {
-    window.mermaid.run({
+    return Promise.resolve(window.mermaid.run({
       nodes: document.querySelectorAll('#nexora-document .nexora-mermaid .mermaid')
-    });
+    })).then(function() {
+      settle(null);
+    }, settle);
   } catch (error) {
-    console.error('mermaid render failed:', error);
+    settle(error);
+    return Promise.resolve();
   }
 };
 
@@ -2300,20 +2937,209 @@ window.nexoraToMarkdown = function(root) {
   return markdown ? markdown + '\n' : '';
 };
 
-window.nexoraSendContent = function() {
+// Returns whether the current WebView selection belongs to the document body.
+window.nexoraSelectionBelongsToDocument = function(selection) {
+  var root = document.getElementById('nexora-document');
+  if (!root || !selection || selection.rangeCount === 0) return false;
+  var container = selection.getRangeAt(0).commonAncestorContainer;
+  return container === root || root.contains(container);
+};
+
+// Inserts plain [text] at the current or captured contenteditable selection.
+window.nexoraInsertPlainText = function(text, capturedRange) {
+  var root = document.getElementById('nexora-document');
+  if (!root || !window.nexoraEditingActive) return false;
+  var selection = window.getSelection();
+  var range = capturedRange ||
+      (selection && selection.rangeCount ? selection.getRangeAt(0) : null);
+  if (!selection || !range) return false;
+  var container = range.commonAncestorContainer;
+  if (container !== root && !root.contains(container)) return false;
+
+  root.focus({ preventScroll: true });
+  selection.removeAllRanges();
+  selection.addRange(range);
+  var value = String(text || '');
+  function notifyInput() {
+    try {
+      root.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        inputType: 'insertFromPaste',
+        data: value
+      }));
+    } catch (_) {
+      root.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+  try {
+    if (document.execCommand('insertText', false, value)) {
+      notifyInput();
+      return true;
+    }
+  } catch (_) {}
+  if (!value) return true;
+
+  range.deleteContents();
+  var fragment = document.createDocumentFragment();
+  var lastNode = null;
+  value.split(/\r\n|\r|\n/).forEach(function(line, index, lines) {
+    if (line) {
+      lastNode = document.createTextNode(line);
+      fragment.appendChild(lastNode);
+    }
+    if (index < lines.length - 1) {
+      lastNode = document.createElement('br');
+      fragment.appendChild(lastNode);
+    }
+  });
+  range.insertNode(fragment);
+  if (lastNode) {
+    range.setStartAfter(lastNode);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  notifyInput();
+  return true;
+};
+
+// Requests clipboard text through Flutter when WebView omits clipboardData.
+window.nexoraRequestClipboardPaste = function() {
+  var selection = window.getSelection();
+  if (!window.nexoraEditingActive ||
+      !window.nexoraSelectionBelongsToDocument(selection)) return false;
+  var requestId = ++window.nexoraPasteRequestId;
+  window.nexoraPendingPaste = {
+    requestId: requestId,
+    path: window.nexoraDocumentPath,
+    range: selection.getRangeAt(0).cloneRange()
+  };
+  window.nexoraPostMessage({
+    type: 'clipboard-paste-request',
+    path: window.nexoraDocumentPath,
+    requestId: requestId
+  });
+  return true;
+};
+
+// Applies Flutter clipboard text only to the unchanged paste request and path.
+window.nexoraApplyClipboardPaste = function(path, requestId, text) {
+  var pending = window.nexoraPendingPaste;
+  if (!pending ||
+      pending.path !== path ||
+      pending.requestId !== requestId ||
+      path !== window.nexoraDocumentPath) return false;
+  window.nexoraPendingPaste = null;
+  return window.nexoraInsertPlainText(text, pending.range);
+};
+
+// Copies the current document selection through Flutter's system clipboard.
+window.nexoraCopySelectionToBridge = function() {
+  var selection = window.getSelection();
+  if (!window.nexoraSelectionBelongsToDocument(selection) ||
+      selection.isCollapsed) return false;
+  var text = selection.toString();
+  if (!text) return false;
+  window.nexoraPostMessage({ type: 'clipboard-copy', text: text });
+  return true;
+};
+
+document.addEventListener('copy', function(event) {
+  var selection = window.getSelection();
+  if (!window.nexoraSelectionBelongsToDocument(selection) ||
+      selection.isCollapsed) return;
+  var text = selection.toString();
+  if (!text) return;
+  if (event.clipboardData) {
+    try {
+      event.clipboardData.setData('text/plain', text);
+      event.preventDefault();
+      return;
+    } catch (_) {}
+  }
+  event.preventDefault();
+  window.nexoraCopySelectionToBridge();
+});
+
+document.addEventListener('paste', function(event) {
+  var selection = window.getSelection();
+  if (!window.nexoraEditingActive ||
+      !window.nexoraSelectionBelongsToDocument(selection)) return;
+  if (event.clipboardData) {
+    try {
+      var text = event.clipboardData.getData('text/plain');
+      event.preventDefault();
+      window.nexoraPendingPaste = null;
+      window.nexoraInsertPlainText(
+          text,
+          selection.getRangeAt(0).cloneRange()
+      );
+      return;
+    } catch (_) {}
+  }
+  if (window.nexoraRequestClipboardPaste()) event.preventDefault();
+});
+
+document.addEventListener('keydown', function(event) {
+  var command = (event.metaKey || event.ctrlKey) &&
+      !event.altKey && !event.shiftKey;
+  if (!command) return;
+  var key = String(event.key || '').toLowerCase();
+  if (key === 'c' && window.nexoraCopySelectionToBridge()) {
+    event.preventDefault();
+    return;
+  }
+  if (key === 'v' && window.nexoraRequestClipboardPaste()) {
+    event.preventDefault();
+  }
+}, true);
+
+window.nexoraSendContent = function(force) {
   var root = document.getElementById('nexora-document');
   if (!root) return;
   var selection = window.getSelection();
-  if (selection && !selection.isCollapsed) {
+  if (!force && selection && !selection.isCollapsed) {
     window.nexoraPendingContentSync = true;
     return;
   }
+  window.nexoraInputTimer = null;
+  window.nexoraSelectionTimer = null;
+  window.nexoraPendingPaste = null;
   window.nexoraPendingContentSync = false;
+  window.nexoraEditingDirty = false;
   window.nexoraClearFind();
   window.nexoraPostMessage({
     type: 'content',
+    path: window.nexoraDocumentPath,
     markdown: window.nexoraToMarkdown(root)
   });
+};
+
+// Enables editing synchronously during pointerdown so WebKit can place the
+// caret using the same native pointer event instead of requiring a second tap.
+window.nexoraActivateEditor = function(root) {
+  if (!root || window.nexoraEditingActive) return;
+  window.nexoraEditingActive = true;
+  root.contentEditable = 'true';
+  root.focus({ preventScroll: true });
+};
+
+// Flushes pending DOM input before removing focus and the blinking caret.
+window.nexoraDeactivateEditor = function() {
+  var root = document.getElementById('nexora-document');
+  if (!root) return;
+  var shouldSync = window.nexoraEditingDirty ||
+      window.nexoraPendingContentSync ||
+      window.nexoraInputTimer !== null ||
+      window.nexoraSelectionTimer !== null;
+  window.clearTimeout(window.nexoraInputTimer);
+  window.clearTimeout(window.nexoraSelectionTimer);
+  window.nexoraInputTimer = null;
+  window.nexoraSelectionTimer = null;
+  if (shouldSync) window.nexoraSendContent(true);
+  window.nexoraEditingActive = false;
+  root.contentEditable = 'false';
+  if (document.activeElement === root) root.blur();
 };
 
 window.nexoraAttachEditor = function() {
@@ -2321,19 +3147,25 @@ window.nexoraAttachEditor = function() {
   if (!root || root.dataset.nexoraEditorAttached) return;
   root.dataset.nexoraEditorAttached = 'true';
   root.addEventListener('input', function() {
+    window.nexoraPendingPaste = null;
+    window.nexoraEditingDirty = true;
     window.clearTimeout(window.nexoraInputTimer);
     window.nexoraInputTimer = window.setTimeout(window.nexoraSendContent, 220);
   });
-  root.addEventListener('pointerdown', function() {
+  root.addEventListener('pointerdown', function(event) {
+    window.nexoraPendingPaste = null;
     window.clearTimeout(window.nexoraSelectionTimer);
+    var interactive = event.target.closest(
+        'a, img, figure, .nexora-mermaid, [contenteditable="false"]');
+    if (!interactive || interactive === root) window.nexoraActivateEditor(root);
   }, true);
-  root.addEventListener('pointerup', function() {
-    window.requestAnimationFrame(function() {
-      var selection = window.getSelection();
-      if (selection && !selection.isCollapsed) return;
-      root.focus({ preventScroll: true });
-    });
-  }, true);
+  root.addEventListener('focusout', function() {
+    window.setTimeout(function() {
+      var active = document.activeElement;
+      if (active && root.contains(active)) return;
+      window.nexoraDeactivateEditor();
+    }, 0);
+  });
   document.addEventListener('selectionchange', function() {
     if (!window.nexoraPendingContentSync) return;
     var selection = window.getSelection();
@@ -2343,29 +3175,41 @@ window.nexoraAttachEditor = function() {
   });
 };
 
-window.nexoraReplaceDocument = function(html, baseHref, preserveCursor, restoreY) {
+// Replaces the body while tagging transitional scroll state to the new path.
+window.nexoraReplaceDocument = function(
+    html,
+    baseHref,
+    preserveCursor,
+    path,
+    restoreY
+) {
+  window.nexoraPendingPaste = null;
+  var keepEditing = preserveCursor && window.nexoraEditingActive === true;
+  if (!keepEditing) window.nexoraDeactivateEditor();
+  window.nexoraCancelScrollRestore(false);
+  window.nexoraDocumentPath = path || '';
+  var target = Number(restoreY);
+  if (!Number.isFinite(target) || target < 0) target = 0;
+  window.nexoraPendingRestoreTarget = { path: path, target: target };
+  window.nexoraSuppressScrollReports = true;
   window.nexoraClearFind();
   var root = document.getElementById('nexora-document');
   if (!root) return;
-  root.contentEditable = 'true';
+  var wasEditing = keepEditing;
+  root.contentEditable = wasEditing ? 'true' : 'false';
   var savedScroll = window.scrollY;
-  var savedContext = preserveCursor ? window.nexoraSaveSelectionContext() : null;
+  var savedContext = preserveCursor && wasEditing
+      ? window.nexoraSaveSelectionContext()
+      : null;
   root.innerHTML = html;
   var base = document.querySelector('base');
   if (base) base.href = baseHref;
   window.nexoraAttachEditor();
-  window.nexoraEnhanceAlerts();
-  window.nexoraBuildToc();
-  window.nexoraWrapImages();
-  window.nexoraRenderMermaid();
-  if (preserveCursor) {
+  if (preserveCursor && wasEditing) {
     window.nexoraRestoreSelectionContext(savedContext);
     window.scrollTo({ top: savedScroll, behavior: 'instant' });
-  } else if (typeof restoreY === 'number' && restoreY > 0) {
-    window.scrollTo({ top: restoreY, behavior: 'instant' });
-  } else {
-    window.scrollTo({ top: 0, behavior: 'instant' });
   }
+  return true;
 };
 
 // Captures the cursor as (blockIndex, offsetWithinBlock) so it can be
@@ -2477,6 +3321,7 @@ window.nexoraActivate = function(requestedIndex, shouldScroll) {
   var active = matches[index];
   active.classList.add('nexora-find-active');
   if (shouldScroll) {
+    window.nexoraCancelScrollRestore(true);
     active.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
   }
 };
@@ -2527,10 +3372,13 @@ window.nexoraFind = function(query, caseSensitive, requestedIndex, shouldScroll)
   window.nexoraActivate(requestedIndex, shouldScroll);
 };
 
+// Performs a user-requested outline jump and cancels automatic restoration.
 window.nexoraScrollTo = function(anchor) {
   var target = document.getElementById(anchor);
-  if (!target) return;
+  if (!target) return false;
+  window.nexoraCancelScrollRestore(true);
   target.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+  return true;
 };
 
 document.addEventListener('click', function(event) {
@@ -2582,6 +3430,20 @@ document.addEventListener('dblclick', function(event) {
     width: image.getAttribute('width') || '',
     height: image.getAttribute('height') || ''
   });
+});
+
+document.addEventListener('keydown', function(event) {
+  if (event.key !== 'Escape' || !window.nexoraEditingActive) return;
+  event.preventDefault();
+  window.nexoraDeactivateEditor();
+});
+
+window.addEventListener('blur', function() {
+  window.nexoraDeactivateEditor();
+});
+
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) window.nexoraDeactivateEditor();
 });
 
 window.nexoraAttachEditor();

@@ -22,6 +22,7 @@ class MarkdownPreview extends StatefulWidget {
     required this.previewAnchor,
     required this.previewJumpId,
     required this.findController,
+    this.onPreviewJumpConsumed,
     this.onOpenLocalPath,
     this.onOpenAnchor,
     super.key,
@@ -34,6 +35,7 @@ class MarkdownPreview extends StatefulWidget {
   final String? previewAnchor;
   final int previewJumpId;
   final PreviewFindController findController;
+  final void Function(String path, int requestId)? onPreviewJumpConsumed;
   final ValueChanged<String>? onOpenLocalPath;
   final ValueChanged<String>? onOpenAnchor;
 
@@ -62,6 +64,14 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
     _observedNavigationRequestId = widget.findController.navigationRequestId;
     widget.findController.addListener(_handleFindChanged);
     _scheduleSearchRefresh();
+    if (widget.previewAnchor != null) {
+      final path = widget.path;
+      final anchor = widget.previewAnchor;
+      final requestId = widget.previewJumpId;
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _jumpToHeading(path, anchor, requestId),
+      );
+    }
   }
 
   @override
@@ -74,11 +84,16 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
       _observedNavigationRequestId = widget.findController.navigationRequestId;
       widget.findController.addListener(_handleFindChanged);
     }
-    if (widget.previewJumpId != oldWidget.previewJumpId) {
+    final pathChanged = widget.path != oldWidget.path;
+    final hasNewJump = pathChanged
+        ? widget.previewAnchor != null
+        : widget.previewJumpId != oldWidget.previewJumpId;
+    if (hasNewJump) {
       final anchor = widget.previewAnchor;
       final requestId = widget.previewJumpId;
+      final path = widget.path;
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _jumpToHeading(anchor, requestId),
+        (_) => _jumpToHeading(path, anchor, requestId),
       );
     }
     if (widget.content != oldWidget.content ||
@@ -213,9 +228,7 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
                         codeblockPadding: const EdgeInsets.all(18),
                         codeblockDecoration: BoxDecoration(
                           color: previewSurface,
-                          border: Border.all(
-                            color: AppColors.line,
-                          ),
+                          border: Border.all(color: AppColors.line),
                           borderRadius: BorderRadius.circular(5),
                         ),
                         blockquote: baseText.copyWith(color: previewMuted),
@@ -237,18 +250,14 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
                           fontWeight: FontWeight.w700,
                         ),
                         tableBody: baseText.copyWith(fontSize: 13),
-                        tableBorder: TableBorder.all(
-                          color: AppColors.line,
-                        ),
+                        tableBorder: TableBorder.all(color: AppColors.line),
                         tableCellsPadding: const EdgeInsets.symmetric(
                           horizontal: 14,
                           vertical: 9,
                         ),
                         horizontalRuleDecoration: BoxDecoration(
                           border: Border(
-                            top: BorderSide(
-                              color: AppColors.lineStrong,
-                            ),
+                            top: BorderSide(color: AppColors.lineStrong),
                           ),
                         ),
                         blockSpacing: 12,
@@ -355,15 +364,30 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
     }
   }
 
-  void _jumpToHeading(String? anchor, int requestId, [int attempt = 0]) {
-    if (!mounted || requestId != widget.previewJumpId || anchor == null) return;
+  /// Scrolls [path] to [anchor] for the one-shot [requestId].
+  ///
+  /// [attempt] allows one extra frame for heading render objects to attach.
+  void _jumpToHeading(
+    String path,
+    String? anchor,
+    int requestId, [
+    int attempt = 0,
+  ]) {
+    if (!mounted ||
+        path != widget.path ||
+        requestId != widget.previewJumpId ||
+        anchor == null) {
+      return;
+    }
     final target = _headingKeys[anchor]?.currentContext;
     final viewport = _viewportKey.currentContext;
     if (target == null || viewport == null || !_scrollController.hasClients) {
       if (attempt < 1) {
         WidgetsBinding.instance.addPostFrameCallback(
-          (_) => _jumpToHeading(anchor, requestId, attempt + 1),
+          (_) => _jumpToHeading(path, anchor, requestId, attempt + 1),
         );
+      } else {
+        widget.onPreviewJumpConsumed?.call(widget.path, requestId);
       }
       return;
     }
@@ -375,6 +399,7 @@ class _MarkdownPreviewState extends State<MarkdownPreview> {
         viewportBox.localToGlobal(Offset.zero).dy +
         _scrollController.position.pixels;
     _animateToOffset(targetOffset - 10);
+    widget.onPreviewJumpConsumed?.call(widget.path, requestId);
   }
 
   void _handleFindChanged() {

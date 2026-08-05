@@ -87,6 +87,15 @@ class EditorSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Marks the preview jump identified by [requestId] as handled.
+  ///
+  /// Stale acknowledgements are ignored so a newer outline click cannot be
+  /// cleared by an older asynchronous WebView command.
+  void consumePreviewJump(int requestId) {
+    if (_previewJumpId != requestId) return;
+    _previewAnchor = null;
+  }
+
   void adoptSavedDocument(DocumentModel document) {
     _document = document;
     _externallyChanged = false;

@@ -108,6 +108,9 @@ class PaneView extends StatelessWidget {
         previewAnchor: session.previewAnchor,
         previewJumpId: session.previewJumpId,
         findController: session.previewFindController,
+        onPreviewJumpConsumed: (path, requestId) {
+          controller.sessions[path]?.consumePreviewJump(requestId);
+        },
         onOpenLocalPath: controller.openPath,
         onOpenAnchor: (anchor) {
           for (final heading in session.headings) {
@@ -139,7 +142,12 @@ class PaneView extends StatelessWidget {
         final target = controller.sessions[path];
         if (target != null) target.setPreviewScrollOffset(y);
       },
-      onContentChanged: session.replaceContentFromPreview,
+      onPreviewJumpConsumed: (path, requestId) {
+        controller.sessions[path]?.consumePreviewJump(requestId);
+      },
+      onContentChanged: (path, content) {
+        controller.sessions[path]?.replaceContentFromPreview(content);
+      },
       onOpenLocalPath: controller.openPath,
       onOpenAnchor: (anchor) {
         for (final heading in session.headings) {
@@ -325,6 +333,9 @@ class _SplitMarkdownPaneState extends State<_SplitMarkdownPane> {
         previewAnchor: _session.previewAnchor,
         previewJumpId: _session.previewJumpId,
         findController: _session.previewFindController,
+        onPreviewJumpConsumed: (path, requestId) {
+          _controller.sessions[path]?.consumePreviewJump(requestId);
+        },
         onOpenLocalPath: _controller.openPath,
         onOpenAnchor: (anchor) {
           for (final heading in _session.headings) {
@@ -356,9 +367,14 @@ class _SplitMarkdownPaneState extends State<_SplitMarkdownPane> {
         final target = _controller.sessions[path];
         if (target != null) target.setPreviewScrollOffset(y);
       },
+      onPreviewJumpConsumed: (path, requestId) {
+        _controller.sessions[path]?.consumePreviewJump(requestId);
+      },
       onScrollFractionChanged: _onPreviewFraction,
       scrollFraction: _previewFraction,
-      onContentChanged: _session.replaceContentFromPreview,
+      onContentChanged: (path, content) {
+        _controller.sessions[path]?.replaceContentFromPreview(content);
+      },
       onOpenLocalPath: _controller.openPath,
       onOpenAnchor: (anchor) {
         for (final heading in _session.headings) {
