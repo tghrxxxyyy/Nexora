@@ -26,10 +26,10 @@
 ### 从 .vsix 安装
 
 ```bash
-code --install-extension nexora-markdown-0.4.5.vsix
+code --install-extension nexora-markdown-0.4.6.vsix
 ```
 
-或在 VS Code 里:`扩展` 面板 → 右上角 `···` → `从 VSIX 安装`,选择 `nexora-markdown-0.4.5.vsix`。
+或在 VS Code 里:`扩展` 面板 → 右上角 `···` → `从 VSIX 安装`,选择 `nexora-markdown-0.4.6.vsix`。
 
 安装后 **Reload Window**,打开任意 `.md` 文件 → 用内置预览打开(见上方「重要」)。
 

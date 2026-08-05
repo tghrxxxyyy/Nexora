@@ -2,7 +2,8 @@
   "name": "nexora-markdown",
   "displayName": "Nexora Markdown Preview",
   "description": "Nexora 风格的 Markdown 预览主题:渐变标题、悬停动画、GitHub callouts、Mac 风代码块、highlight.js 与 Mermaid。",
-  "version": "0.4.5",
+  "version": "0.4.6",
+  "icon": "media/icon.png",
   "publisher": "nexora",
   "main": "extension.js",
   "activationEvents": [
@@ -11,6 +12,9 @@
   "engines": {
     "vscode": "^1.70.0"
   },
+  "extensionKind": [
+    "workspace"
+  ],
   "categories": [
     "Other"
   ],
