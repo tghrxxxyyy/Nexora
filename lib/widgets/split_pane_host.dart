@@ -47,15 +47,19 @@ class SplitPaneHost extends StatelessWidget {
     // header there.
     final withHeader = Column(
       children: [
-        PaneHeader(
-          controller: controller,
-          paneId: paneId,
+        PaneHeader(controller: controller, paneId: paneId),
+        Expanded(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => controller.activatePane(paneId),
+            child: body,
+          ),
         ),
-        Expanded(child: body),
       ],
     );
     return SplitDropZone(
       targetPaneId: paneId,
+      canSplit: controller.canCreatePane,
       onSplitEdge: (axis, primaryIsOld, payload) {
         // primaryIsOld=true (right/bottom drop): old pane stays primary, new
         // pane is the secondary. primaryIsOld=false (left/top drop): new pane
@@ -103,7 +107,9 @@ class SplitPaneHost extends StatelessWidget {
             },
             onDragEnd: () {
               final firstLeafId = primary.leaves.first.paneId;
-              final parent = controller.activeSplit?.findParentBranch(firstLeafId);
+              final parent = controller.activeSplit?.findParentBranch(
+                firstLeafId,
+              );
               if (parent != null) {
                 if (parent.ratio <= 0.15) {
                   controller.unsplitPane(secondary.leaves.first.paneId);

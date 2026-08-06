@@ -525,7 +525,7 @@ class _ActivityRail extends StatelessWidget {
             ),
             const SizedBox(height: 4),
           ],
-          if (isMarkdown) ...[
+          if (isMarkdown && !controller.isSplit) ...[
             AppIconButton(
               icon: Icons.keyboard_double_arrow_right_rounded,
               tooltip: controller.showOutline ? '收起目录' : '展开目录',

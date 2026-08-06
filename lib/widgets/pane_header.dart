@@ -7,6 +7,7 @@ import '../services/file_icon_resolver.dart';
 import '../state/app_controller.dart';
 import '../utils/path_display.dart';
 import 'drag_feedback.dart';
+import 'outline_sidebar.dart';
 import 'pane_drag_payload.dart';
 
 /// Per-pane tab strip shown above each pane when the workspace is split.
@@ -15,11 +16,7 @@ import 'pane_drag_payload.dart';
 /// tab removes it from the pane (and disposes the session if no other pane
 /// references it).
 class PaneHeader extends StatelessWidget {
-  const PaneHeader({
-    required this.controller,
-    required this.paneId,
-    super.key,
-  });
+  const PaneHeader({required this.controller, required this.paneId, super.key});
 
   final AppController controller;
   final String paneId;
@@ -29,6 +26,9 @@ class PaneHeader extends StatelessWidget {
     final leaf = controller.paneLeaf(paneId);
     final paths = leaf?.openPaths ?? const <String>[];
     final activeIndex = leaf?.activeIndex ?? 0;
+    final paneSession = controller.paneSessionFor(paneId);
+    final showFloatingOutline =
+        controller.isSplit && paneSession?.document.isMarkdown == true;
     return Container(
       height: 32,
       decoration: BoxDecoration(
@@ -37,26 +37,61 @@ class PaneHeader extends StatelessWidget {
       ),
       child: paths.isEmpty
           ? const SizedBox.shrink()
-          : ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 5,
-                vertical: 3,
-              ),
-              itemCount: paths.length,
-              separatorBuilder: (context, index) =>
-                  const SizedBox(width: 2),
-              itemBuilder: (context, index) {
-                final path = paths[index];
-                final session = controller.sessions[path];
-                final selected = index == activeIndex;
-                return _PaneTab(
-                  path: path,
-                  name: session?.document.name ?? p.basename(path),
-                  dirty: session?.document.isDirty ?? false,
-                  selected: selected,
-                  onTap: () => controller.selectPaneTab(paneId, path),
-                  onClose: () => controller.closePaneTab(paneId, path),
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final menuWidth = (constraints.maxWidth - 12)
+                    .clamp(120.0, 270.0)
+                    .toDouble();
+                return Row(
+                  children: [
+                    Expanded(
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 3,
+                        ),
+                        itemCount: paths.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(width: 2),
+                        itemBuilder: (context, index) {
+                          final path = paths[index];
+                          final session = controller.sessions[path];
+                          final selected = index == activeIndex;
+                          return _PaneTab(
+                            path: path,
+                            name: session?.document.name ?? p.basename(path),
+                            dirty: session?.document.isDirty ?? false,
+                            selected: selected,
+                            canMoveRight: controller.canMoveDocumentToRightPane(
+                              paneId,
+                              path,
+                            ),
+                            onTap: () => controller.selectPaneTab(paneId, path),
+                            onClose: () =>
+                                controller.closePaneTab(paneId, path),
+                            onMoveRight: () =>
+                                controller.moveDocumentToRightPane(
+                                  sourcePaneId: paneId,
+                                  filePath: path,
+                                ),
+                          );
+                        },
+                      ),
+                    ),
+                    if (showFloatingOutline && paneSession != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 5),
+                        child: HoverOutlineMenu(
+                          key: ValueKey(
+                            '${paneSession.document.path}:outline-menu',
+                          ),
+                          controller: controller,
+                          session: paneSession,
+                          menuWidth: menuWidth,
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
@@ -70,16 +105,20 @@ class _PaneTab extends StatefulWidget {
     required this.name,
     required this.dirty,
     required this.selected,
+    required this.canMoveRight,
     required this.onTap,
     required this.onClose,
+    required this.onMoveRight,
   });
 
   final String path;
   final String name;
   final bool dirty;
   final bool selected;
+  final bool canMoveRight;
   final VoidCallback onTap;
   final VoidCallback onClose;
+  final Future<void> Function() onMoveRight;
 
   @override
   State<_PaneTab> createState() => _PaneTabState();
@@ -99,6 +138,7 @@ class _PaneTabState extends State<_PaneTab> {
         waitDuration: const Duration(milliseconds: 100),
         child: GestureDetector(
           onTap: widget.onTap,
+          onSecondaryTapDown: _showContextMenu,
           child: AnimatedContainer(
             duration: AppMotion.quick,
             constraints: const BoxConstraints(maxWidth: 170),
@@ -108,8 +148,8 @@ class _PaneTabState extends State<_PaneTab> {
               color: widget.selected
                   ? AppColors.signal.withValues(alpha: 0.085)
                   : _hovered
-                      ? AppColors.signal.withValues(alpha: 0.035)
-                      : Colors.transparent,
+                  ? AppColors.signal.withValues(alpha: 0.035)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),
             child: Row(
@@ -165,7 +205,60 @@ class _PaneTabState extends State<_PaneTab> {
       child: content,
     );
   }
+
+  /// Opens the tab context menu at the pointer location.
+  ///
+  /// Parameters:
+  /// - [details]: secondary-click coordinates in global window space.
+  Future<void> _showContextMenu(TapDownDetails details) async {
+    final overlayBox = Overlay.of(context).context.findRenderObject();
+    if (overlayBox is! RenderBox) return;
+    final localPosition = overlayBox.globalToLocal(details.globalPosition);
+    final action = await showMenu<_PaneTabAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        localPosition.dx,
+        localPosition.dy,
+        overlayBox.size.width - localPosition.dx,
+        overlayBox.size.height - localPosition.dy,
+      ),
+      items: [
+        PopupMenuItem<_PaneTabAction>(
+          value: _PaneTabAction.moveRight,
+          enabled: widget.canMoveRight,
+          height: 34,
+          child: Row(
+            children: [
+              Icon(
+                Icons.vertical_split_rounded,
+                size: 15,
+                color: widget.canMoveRight
+                    ? AppColors.textMuted
+                    : AppColors.textDim,
+              ),
+              const SizedBox(width: 9),
+              Text(
+                '移动到右侧',
+                style: TextStyle(
+                  color: widget.canMoveRight
+                      ? AppColors.text
+                      : AppColors.textDim,
+                  fontSize: 11.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (mounted && action == _PaneTabAction.moveRight && widget.canMoveRight) {
+      await widget.onMoveRight();
+    }
+  }
 }
+
+/// Actions exposed by an opened document tab's secondary-click menu.
+enum _PaneTabAction { moveRight }
 
 class _PaneFileIcon extends StatelessWidget {
   const _PaneFileIcon({required this.path});

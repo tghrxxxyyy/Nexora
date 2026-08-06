@@ -1375,9 +1375,37 @@ class AppController extends ChangeNotifier {
     });
   }
 
+  /// Jumps the active document to one Markdown heading.
+  ///
+  /// Parameters:
+  /// - [lineNumber]: one-based source line used by edit mode.
+  /// - [anchor]: rendered heading id used by preview and split modes.
   void jumpToHeading(int lineNumber, String anchor) {
     final session = activeSession;
     if (session == null) return;
+    jumpToHeadingInSession(session, lineNumber, anchor);
+  }
+
+  /// Activates [session] and jumps that pane to one Markdown heading.
+  ///
+  /// Parameters:
+  /// - [session]: pane-specific document session that owns the outline.
+  /// - [lineNumber]: one-based source line used by edit mode.
+  /// - [anchor]: rendered heading id used by preview and split modes.
+  void jumpToHeadingInSession(
+    EditorSession session,
+    int lineNumber,
+    String anchor,
+  ) {
+    final workspace = activeWorkspace;
+    if (workspace == null || !_sessions.containsValue(session)) return;
+    final workspaceIndex = _workspaces.indexOf(workspace);
+    if (workspaceIndex >= 0 &&
+        workspace.selectedFilePath != session.document.path) {
+      _workspaces[workspaceIndex] = workspace.copyWith(
+        selectedFilePath: session.document.path,
+      );
+    }
     _activeHeadingAnchor = anchor;
     if (session.viewMode != MarkdownViewMode.edit) {
       session.requestPreviewJump(anchor);
@@ -1584,6 +1612,15 @@ class AppController extends ChangeNotifier {
     return node != null && node.leaves.length > 1;
   }
 
+  /// Whether the active workspace may create one more content pane.
+  ///
+  /// Nexora currently supports at most two panes, including drag-to-split and
+  /// tab context-menu entry points.
+  bool get canCreatePane {
+    final paneCount = activeWorkspace?.split?.leaves.length ?? 1;
+    return paneCount < 2;
+  }
+
   /// Returns the session backing [paneId]. Prefers a dedicated clone (each
   /// pane gets an independent controller so cursors don't fight); falls back
   /// to the primary session keyed by file path for the primary-most leaf,
@@ -1631,6 +1668,87 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  /// Returns whether [filePath] can be moved from [sourcePaneId] into a new
+  /// right-hand pane.
+  ///
+  /// The action is available only while one pane is visible and requires
+  /// another open document to remain in the left pane.
+  ///
+  /// Parameters:
+  /// - [sourcePaneId]: pane that currently owns the tab.
+  /// - [filePath]: document represented by the clicked tab.
+  bool canMoveDocumentToRightPane(String sourcePaneId, String filePath) {
+    final workspace = activeWorkspace;
+    if (workspace == null || isSplit) return false;
+    final normalized = _normalize(filePath);
+    final sourceLeaf = paneLeaf(sourcePaneId);
+    return sourceLeaf != null &&
+        sourceLeaf.openPaths.length > 1 &&
+        sourceLeaf.openPaths.contains(normalized);
+  }
+
+  /// Moves one open document into a newly created right-hand pane.
+  ///
+  /// The operation updates the complete split tree in one notification so the
+  /// document is never briefly rendered in both panes or removed from both.
+  ///
+  /// Parameters:
+  /// - [sourcePaneId]: pane that currently owns the tab.
+  /// - [filePath]: document moved into the new right pane.
+  Future<void> moveDocumentToRightPane({
+    required String sourcePaneId,
+    required String filePath,
+  }) async {
+    if (!canMoveDocumentToRightPane(sourcePaneId, filePath)) return;
+    final workspace = activeWorkspace;
+    if (workspace == null) return;
+
+    final normalized = _normalize(filePath);
+    final sourceLeaf = paneLeaf(sourcePaneId);
+    if (sourceLeaf == null) return;
+    final documents = List<String>.from(sourceLeaf.openPaths);
+    final movedIndex = documents.indexOf(normalized);
+    if (movedIndex < 0) return;
+
+    final leftPaths = List<String>.from(documents)..removeAt(movedIndex);
+    if (leftPaths.isEmpty) return;
+    final selectedPath = workspace.selectedFilePath;
+    final leftActiveIndex =
+        selectedPath != null &&
+            selectedPath != normalized &&
+            leftPaths.contains(selectedPath)
+        ? leftPaths.indexOf(selectedPath)
+        : movedIndex.clamp(0, leftPaths.length - 1);
+
+    // Visible tabs must already own canonical sessions. Keeping this update
+    // synchronous prevents stale pre-await workspace state from winning races.
+    if (!_sessions.containsKey(leftPaths[leftActiveIndex]) ||
+        !_sessions.containsKey(normalized)) {
+      return;
+    }
+
+    final rightPaneId = _generatePaneId();
+    final split = SplitBranch(
+      axis: SplitAxis.horizontal,
+      primary: SplitLeaf(
+        paneId: sourcePaneId,
+        openPaths: leftPaths,
+        activeIndex: leftActiveIndex,
+      ),
+      secondary: SplitLeaf(paneId: rightPaneId, openPaths: [normalized]),
+      ratio: 0.5,
+    );
+    final workspaceIndex = _workspaces.indexOf(workspace);
+    if (workspaceIndex < 0) return;
+    _workspaces[workspaceIndex] = workspace.copyWith(
+      selectedFilePath: normalized,
+      split: split,
+    );
+    _activeHeadingAnchor = null;
+    notifyListeners();
+    _scheduleSessionSave();
+  }
+
   /// Splits the pane identified by [targetPaneId] along [axis], placing
   /// [filePath] in the new pane. The target pane keeps its existing session
   /// (cursor preserved); only the new pane gets a fresh clone.
@@ -1647,6 +1765,10 @@ class AppController extends ChangeNotifier {
   }) async {
     final workspace = activeWorkspace;
     if (workspace == null) return;
+    if (!canCreatePane) {
+      showMessage('当前最多支持两栏', tone: AppMessageTone.warning);
+      return;
+    }
 
     // Treat the no-split case as an implicit leaf with targetPaneId so the
     // renderer can use a stable paneId ('root') without the controller
@@ -1772,11 +1894,56 @@ class AppController extends ChangeNotifier {
     final current = workspace.split;
     if (current == null) return;
     if (!current.containsPane(paneId)) return;
+    SplitLeaf? removedLeaf;
+    for (final leaf in current.leaves) {
+      if (leaf.paneId != paneId) continue;
+      removedLeaf = leaf;
+      break;
+    }
+    if (removedLeaf == null) return;
+
     final collapsed = current.collapseLeaf(paneId);
-    final removedPath = _leafPath(current, paneId);
+    final remainingPaths =
+        collapsed?.leaves.expand((leaf) => leaf.openPaths).toSet() ??
+        <String>{};
+    final documents = _workspaceDocuments[workspace.id] ??= <String>[];
+    final previouslyOpenPaths = documents.toSet();
+    for (final removedPath in removedLeaf.openPaths) {
+      if (!remainingPaths.contains(removedPath)) documents.remove(removedPath);
+    }
+
+    // A single surviving leaf is normalized back to ordinary one-pane mode.
+    final normalizedSplit = collapsed is SplitLeaf ? null : collapsed;
+    if (collapsed is SplitLeaf) {
+      documents
+        ..clear()
+        ..addAll(collapsed.openPaths);
+    }
     _paneSessions.remove(paneId)?.dispose();
-    if (removedPath != null) _maybeDisposePrimary(removedPath, tree: collapsed);
-    _replaceWorkspaceSplit(workspace, collapsed);
+    final workspaceIndex = _workspaces.indexOf(workspace);
+    if (workspaceIndex >= 0) {
+      final selectedStillVisible =
+          workspace.selectedFilePath != null &&
+          remainingPaths.contains(workspace.selectedFilePath);
+      final survivingPath = selectedStillVisible
+          ? workspace.selectedFilePath
+          : collapsed?.leaves.first.filePath ??
+                (documents.isEmpty ? null : documents.first);
+      _workspaces[workspaceIndex] = workspace.copyWith(
+        selectedFilePath: survivingPath,
+        clearSelectedFilePath: survivingPath == null,
+        split: normalizedSplit,
+        clearSplit: normalizedSplit == null,
+      );
+    }
+    final closedPaths = {
+      ...previouslyOpenPaths,
+      ...removedLeaf.openPaths,
+    }.difference(documents.toSet());
+    for (final closedPath in closedPaths) {
+      _maybeDisposePrimary(closedPath, tree: normalizedSplit);
+    }
+    _activeHeadingAnchor = null;
     notifyListeners();
     _scheduleSessionSave();
   }
@@ -1879,13 +2046,6 @@ class AppController extends ChangeNotifier {
       return parent.secondary.leaves.first.paneId;
     }
     return parent.primary.leaves.first.paneId;
-  }
-
-  String? _leafPath(SplitNode node, String paneId) {
-    for (final leaf in node.leaves) {
-      if (leaf.paneId == paneId) return leaf.filePath;
-    }
-    return null;
   }
 
   /// Returns a copy of [node] with [path] added to (or activated within) the
@@ -2016,7 +2176,11 @@ class AppController extends ChangeNotifier {
     }
     final normalized = _normalize(path);
     final updated = _setActiveInPane(workspace.split!, paneId, normalized);
-    if (updated == null) return;
+    if (updated == null) {
+      final leaf = paneLeaf(paneId);
+      if (leaf?.filePath == normalized) activatePane(paneId);
+      return;
+    }
     final leaf = updated.leaves.firstWhere((l) => l.paneId == paneId);
     final index = _workspaces.indexOf(workspace);
     if (index >= 0) {
@@ -2032,6 +2196,32 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     _scheduleSessionSave();
     unawaited(revealPathInWorkspace(normalized));
+  }
+
+  /// Marks the visible document in [paneId] as the target for global actions.
+  ///
+  /// Parameters:
+  /// - [paneId]: pane whose editor or preview received pointer focus.
+  void activatePane(String paneId) {
+    final workspace = activeWorkspace;
+    final split = workspace?.split;
+    if (workspace == null || split == null) return;
+    SplitLeaf? leaf;
+    for (final candidate in split.leaves) {
+      if (candidate.paneId != paneId) continue;
+      leaf = candidate;
+      break;
+    }
+    final path = leaf?.filePath;
+    if (path == null || path.isEmpty || workspace.selectedFilePath == path) {
+      return;
+    }
+    final workspaceIndex = _workspaces.indexOf(workspace);
+    if (workspaceIndex < 0) return;
+    _workspaces[workspaceIndex] = workspace.copyWith(selectedFilePath: path);
+    _activeHeadingAnchor = null;
+    notifyListeners();
+    _scheduleSessionSave();
   }
 
   /// Closes [path] within [paneId]. If the pane becomes empty, unsplits it.
@@ -2077,20 +2267,33 @@ class AppController extends ChangeNotifier {
       );
       if (session?.document.isDirty == true && !stillReferenced) return;
     }
-    _maybeDisposePrimary(normalized, tree: updated);
-
     final newActivePath = updated.leaves
         .firstWhere((l) => l.paneId == paneId)
         .filePath;
+    final selectedStillVisible =
+        workspace.selectedFilePath != null &&
+        updated.leaves.any(
+          (leaf) => leaf.openPaths.contains(workspace.selectedFilePath),
+        );
+    final selectedPath = selectedStillVisible
+        ? workspace.selectedFilePath
+        : newActivePath;
+    final stillReferenced = updated.leaves.any(
+      (leaf) => leaf.openPaths.contains(normalized),
+    );
+    if (!stillReferenced) {
+      _workspaceDocuments[workspace.id]?.remove(normalized);
+    }
     final index = _workspaces.indexOf(workspace);
     if (index >= 0) {
       _workspaces[index] = workspace.copyWith(
-        selectedFilePath: newActivePath,
+        selectedFilePath: selectedPath,
         split: updated,
       );
     } else {
       _replaceWorkspaceSplit(workspace, updated);
     }
+    _maybeDisposePrimary(normalized, tree: updated);
     notifyListeners();
     _scheduleSessionSave();
   }
@@ -2208,10 +2411,14 @@ class AppController extends ChangeNotifier {
     if (splitValue is Map<String, dynamic>) {
       try {
         final split = SplitNode.fromJson(splitValue);
-        await _restoreSplitTree(workspace, split);
-        final index = _workspaces.indexOf(workspace);
-        if (index >= 0) {
-          _workspaces[index] = workspace.copyWith(split: split);
+        // Older sessions may contain arbitrary nested layouts. Only restore
+        // actual two-pane trees now that Nexora intentionally caps this view.
+        if (split.leaves.length == 2) {
+          await _restoreSplitTree(workspace, split);
+          final index = _workspaces.indexOf(workspace);
+          if (index >= 0) {
+            _workspaces[index] = workspace.copyWith(split: split);
+          }
         }
       } on FormatException {
         // Stale / malformed split JSON — drop it and use the single-doc view.
@@ -2298,8 +2505,9 @@ class AppController extends ChangeNotifier {
     );
     _recentItems.removeWhere((recent) => recent.id == normalized.id);
     _recentItems.insert(0, normalized);
-    if (_recentItems.length > 10)
+    if (_recentItems.length > 10) {
       _recentItems.removeRange(10, _recentItems.length);
+    }
   }
 
   void _scheduleSessionSave() {

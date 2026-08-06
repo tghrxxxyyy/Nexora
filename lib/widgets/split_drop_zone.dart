@@ -15,6 +15,7 @@ enum _DropZone { none, left, right, top, bottom, center }
 class SplitDropZone extends StatefulWidget {
   const SplitDropZone({
     required this.targetPaneId,
+    required this.canSplit,
     required this.child,
     required this.onSplitEdge,
     required this.onReplaceCenter,
@@ -22,13 +23,18 @@ class SplitDropZone extends StatefulWidget {
   });
 
   final String targetPaneId;
+  final bool canSplit;
   final Widget child;
 
   /// Fires when a payload is dropped on a directional edge. The [axis] is
   /// already resolved (horizontal for left/right, vertical for top/bottom)
   /// and the secondary leaf's position is implied by the edge.
-  final void Function(SplitAxis axis, bool primaryIsOld, PaneDragPayload payload)
-      onSplitEdge;
+  final void Function(
+    SplitAxis axis,
+    bool primaryIsOld,
+    PaneDragPayload payload,
+  )
+  onSplitEdge;
 
   /// Fires when a payload is dropped on the center of the pane — replaces the
   /// pane's current document with the payload's file.
@@ -91,9 +97,7 @@ class _SplitDropZoneState extends State<SplitDropZone> {
               children: [
                 RepaintBoundary(child: widget.child),
                 if (_hovered != _DropZone.none)
-                  IgnorePointer(
-                    child: _buildOverlay(_hovered),
-                  ),
+                  IgnorePointer(child: _buildOverlay(_hovered)),
               ],
             );
           },
@@ -107,9 +111,7 @@ class _SplitDropZoneState extends State<SplitDropZone> {
     final border = AppColors.signal.withValues(alpha: 0.85);
     final decoration = BoxDecoration(
       color: tint,
-      border: Border.fromBorderSide(
-        BorderSide(color: border, width: 1.5),
-      ),
+      border: Border.fromBorderSide(BorderSide(color: border, width: 1.5)),
       borderRadius: BorderRadius.circular(4),
     );
 
@@ -168,6 +170,9 @@ class _SplitDropZoneState extends State<SplitDropZone> {
   }
 
   _DropZone _resolveZone(BoxConstraints constraints, Offset offset) {
+    // Once two panes exist, every drop becomes a center-tab operation so the
+    // UI never advertises or creates an unsupported third pane.
+    if (!widget.canSplit) return _DropZone.center;
     final w = constraints.maxWidth;
     final h = constraints.maxHeight;
     if (w <= 0 || h <= 0) return _DropZone.center;

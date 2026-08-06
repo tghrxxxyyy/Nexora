@@ -33,24 +33,25 @@ class PaneView extends StatelessWidget {
   Widget build(BuildContext context) {
     final doc = session.document;
     final canPreview = doc.isMarkdown || doc.isHtml || doc.isImage;
-    final showOutline = doc.isMarkdown && controller.showOutline;
+    final showDockedOutline =
+        doc.isMarkdown && controller.showOutline && !controller.isSplit;
     if (!canPreview || session.viewMode == MarkdownViewMode.edit) {
       return KeyedSubtree(
         key: ValueKey('${doc.path}:edit'),
-        child: _withOutline(_editor(), showOutline),
+        child: _withOutline(_editor(), showDockedOutline),
       );
     }
     if (session.viewMode == MarkdownViewMode.preview) {
       return KeyedSubtree(
         key: const ValueKey('document-preview'),
-        child: _withOutline(_preview(), showOutline),
+        child: _withOutline(_preview(), showDockedOutline),
       );
     }
     return KeyedSubtree(
       key: ValueKey('${doc.path}:split'),
       child: _withOutline(
         _SplitMarkdownPane(controller: controller, session: session),
-        showOutline,
+        showDockedOutline,
       ),
     );
   }
@@ -115,7 +116,11 @@ class PaneView extends StatelessWidget {
         onOpenAnchor: (anchor) {
           for (final heading in session.headings) {
             if (heading.anchor == anchor) {
-              controller.jumpToHeading(heading.lineNumber, heading.anchor);
+              controller.jumpToHeadingInSession(
+                session,
+                heading.lineNumber,
+                heading.anchor,
+              );
               break;
             }
           }
@@ -152,7 +157,11 @@ class PaneView extends StatelessWidget {
       onOpenAnchor: (anchor) {
         for (final heading in session.headings) {
           if (heading.anchor == anchor) {
-            controller.jumpToHeading(heading.lineNumber, heading.anchor);
+            controller.jumpToHeadingInSession(
+              session,
+              heading.lineNumber,
+              heading.anchor,
+            );
             break;
           }
         }
@@ -340,7 +349,11 @@ class _SplitMarkdownPaneState extends State<_SplitMarkdownPane> {
         onOpenAnchor: (anchor) {
           for (final heading in _session.headings) {
             if (heading.anchor == anchor) {
-              _controller.jumpToHeading(heading.lineNumber, heading.anchor);
+              _controller.jumpToHeadingInSession(
+                _session,
+                heading.lineNumber,
+                heading.anchor,
+              );
               break;
             }
           }
@@ -379,7 +392,11 @@ class _SplitMarkdownPaneState extends State<_SplitMarkdownPane> {
       onOpenAnchor: (anchor) {
         for (final heading in _session.headings) {
           if (heading.anchor == anchor) {
-            _controller.jumpToHeading(heading.lineNumber, heading.anchor);
+            _controller.jumpToHeadingInSession(
+              _session,
+              heading.lineNumber,
+              heading.anchor,
+            );
             break;
           }
         }
